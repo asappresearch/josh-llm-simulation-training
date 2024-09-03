@@ -1,0 +1,14 @@
+# put requriemetns here
+python-dotenv
+colorama
+openai~=1.14.3
+pyyaml
+datasets
+accelerate
+transformers
+bitsandbytes
+numpy
+pandas
+trl
+torch
+deepsig
