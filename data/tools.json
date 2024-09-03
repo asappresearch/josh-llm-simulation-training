@@ -1,0 +1,229 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "book_restaurant",
+      "description": "Allows you to book a restaurant",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "time": {
+            "type": "string",
+            "description": "Time the restaurant reservation is at e.g. 13:00"
+          },
+          "day": {
+            "type": "string",
+            "description": "Day of the week the restaurant reservation is on e.g. thursday"
+          },
+          "people": {
+            "type": "string",
+            "description": "Number of people in the restaurant reservation e.g. 3"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the restaurant e.g. the river bar steakhouse and grill"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_restaurant",
+      "description": "Allows you to search a restaurant",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "food": {
+            "type": "string",
+            "description": "Type of food served at the restaurant e.g. modern european"
+          },
+          "pricerange": {
+            "type": "string",
+            "description": "Price range the restaurant is in e.g. cheap",
+            "enum": ["cheap", "expensive", "moderate"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the restaurant e.g. jinling noodle bar"
+          },
+          "area": {
+            "type": "string",
+            "description": "Area the restaurant is located in e.g. centre"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "book_hotel",
+      "description": "Allows you to book a hotel",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "stay": {
+            "type": "string",
+            "description": "The number of days the hotel will be rented for e.g. 4"
+          },
+          "day": {
+            "type": "string",
+            "description": "The day of the week the hotel will be rented for e.g. friday"
+          },
+          "people": {
+            "type": "string",
+            "description": "The number of people that will be at the hotel e.g. 2"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the hotel e.g. acorn guest house"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_hotel",
+      "description": "Allows you to search a hotel",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the hotel e.g. hamilton lodge"
+          },
+          "area": {
+            "type": "string",
+            "description": "The area the hotel is located in e.g. north",
+            "enum": ["west", "east", "centre", "south", "north"]
+          },
+          "parking": {
+            "type": "string",
+            "description": "Whether the hotel offers free parking e.g. yes",
+            "enum": ["yes", "no"]
+          },
+          "pricerange": {
+            "type": "string",
+            "description": "What the price range of how expensive the hotel is e.g. moderate",
+            "enum": ["moderate", "expensive", "cheap"]
+          },
+          "stars": {
+            "type": "string",
+            "description": "The number of stars the hotel has e.g. 4",
+            "enum": ["0", "1", "2", "3", "4"]
+          },
+          "internet": {
+            "type": "string",
+            "description": "Whether or not the hotel has free internet e.g. yes",
+            "enum": ["yes", "no"]
+          },
+          "type": {
+            "type": "string",
+            "description": "Whether to reserve a hotel or guesthouse. e.g. guesthouse",
+            "enum": ["hotel", "guesthouse"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "book_attraction",
+      "description": "Allows you to book a attraction",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_attraction",
+      "description": "Allows you to search a attraction",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "The type or theme of the attraction e.g. boat"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the attraction e.g. sheep's green and lammas land park fen causeway"
+          },
+          "area": {
+            "type": "string",
+            "description": "The area where the attraction is e.g. centre",
+            "enum": ["west", "east", "centre", "south", "north"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "book_train",
+      "description": "Allows you to book a train",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "people": {
+            "type": "string",
+            "description": "The number of people or seats to book on the train e.g. 3"
+          },
+          "trainID": {
+            "type": "string",
+            "description": "ID for the train the tickets are for e.g. TR2048"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "search_train",
+      "description": "Allows you to search a train",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "leaveAt": {
+            "type": "string",
+            "description": "Time the train will leave from the departure area e.g. 08:45"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination area of the train e.g. cambridge"
+          },
+          "day": {
+            "type": "string",
+            "description": "Day of the week the train will run e.g. tuesday"
+          },
+          "arriveBy": {
+            "type": "string",
+            "description": "Time the train will arrive at the destination e.g. 12:30"
+          },
+          "departure": {
+            "type": "string",
+            "description": "Departure area of the train e.g. london liverpool street"
+          }
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,169 @@
+{
+  "restaurant": {
+    "book_restaurant": {
+      "parameters": [
+        "time",
+        "day",
+        "people",
+        "name"
+      ],
+      "returns": [
+        "name",
+        "reference"
+      ]
+    },
+    "search_restaurant": {
+      "parameters": [
+        "food",
+        "pricerange",
+        "name",
+        "area"
+      ],
+      "returns": [
+        "id",
+        "address",
+        "area",
+        "food",
+        "introduction",
+        "name",
+        "phone",
+        "postcode",
+        "pricerange",
+        "signature",
+        "type"
+      ]
+    }
+  },
+  "hotel": {
+    "book_hotel": {
+      "parameters": [
+        "stay",
+        "day",
+        "people",
+        "name"
+      ],
+      "returns": [
+        "name",
+        "reference"
+      ]
+    },
+    "search_hotel": {
+      "parameters": [
+        "name",
+        "area",
+        "parking",
+        "pricerange",
+        "stars",
+        "internet",
+        "type"
+      ],
+      "returns": [
+        "id",
+        "address",
+        "area",
+        "internet",
+        "parking",
+        "single",
+        "double",
+        "family",
+        "name",
+        "phone",
+        "postcode",
+        "pricerange",
+        "takesbookings",
+        "stars",
+        "type"
+      ]
+    }
+  },
+  "attraction": {
+    "book_attraction": {
+      "parameters": [],
+      "returns": []
+    },
+    "search_attraction": {
+      "parameters": [
+        "type",
+        "name",
+        "area"
+      ],
+      "returns": [
+        "id",
+        "address",
+        "area",
+        "entrance",
+        "name",
+        "phone",
+        "postcode",
+        "pricerange",
+        "openhours",
+        "type"
+      ]
+    }
+  },
+  "train": {
+    "book_train": {
+      "parameters": [
+        "people",
+        "trainID"
+      ],
+      "returns": [
+        "trainID",
+        "reference"
+      ]
+    },
+    "search_train": {
+      "parameters": [
+        "leaveAt",
+        "destination",
+        "day",
+        "arriveBy",
+        "departure"
+      ],
+      "returns": [
+        "trainID",
+        "arriveBy",
+        "day",
+        "departure",
+        "destination",
+        "duration",
+        "leaveAt",
+        "price"
+      ]
+    }
+  },
+  "taxi": {
+    "book_taxi": {
+      "parameters": [],
+      "returns": [
+        "phone",
+        "type"
+      ]
+    },
+    "search_taxi": {
+      "parameters": [
+        "leaveAt",
+        "destination",
+        "departure",
+        "arriveBy"
+      ],
+      "returns": []
+    }
+  },
+  "hospital": {
+    "book_hospital": {
+      "parameters": [],
+      "returns": [
+        "reference",
+        "time",
+        "department"
+      ]
+    },
+    "search_hospital": {
+      "parameters": [
+        "department"
+      ],
+      "returns": []
+    }
+  }
+}

@@ -1,0 +1,70 @@
+[
+  {
+    "name": "book_restaurant",
+    "parameters": {
+      "time": "13:00",
+      "day": "thursday",
+      "people": "3",
+      "name": "the river bar steakhouse and grill"
+    }
+  },
+  {
+    "name": "search_restaurant",
+    "parameters": {
+      "food": "modern european",
+      "pricerange": "cheap",
+      "name": "jinling noodle bar",
+      "area": "centre"
+    }
+  },
+  {
+    "name": "book_hotel",
+    "parameters": {
+      "stay": "4",
+      "day": "friday",
+      "people": "2",
+      "name": "acorn guest house"
+    }
+  },
+  {
+    "name": "search_hotel",
+    "parameters": {
+      "name": "hamilton lodge",
+      "area": "north",
+      "parking": "yes",
+      "pricerange": "moderate",
+      "stars": "4",
+      "internet": "yes",
+      "type": "guesthouse"
+    }
+  },
+  {
+    "name": "book_attraction",
+    "parameters": {}
+  },
+  {
+    "name": "search_attraction",
+    "parameters": {
+      "type": "boat",
+      "name": "sheep's green and lammas land park fen causeway",
+      "area": "centre"
+    }
+  },
+  {
+    "name": "book_train",
+    "parameters": {
+      "people": "3",
+      "trainID": "TR2048"
+    }
+  },
+  {
+    "name": "search_train",
+    "parameters": {
+      "leaveAt": "08:45",
+      "destination": "cambridge",
+      "day": "tuesday",
+      "arriveBy": "12:30",
+      "departure": "london liverpool street"
+    }
+  }
+]
