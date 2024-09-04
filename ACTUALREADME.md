@@ -5,6 +5,13 @@ an AgentSimulator object.
 
 This repo also contains ways of logging training and preference-annotated episodes from user-simulator interactions and LORA-driven preference tuning of small LLMs from such preference annotated experience.
 
+## Pre-installation
+
+(If you want to later evaluate MTBench)
+```
+unzip mtbencheval.zip
+```
+
 ## Installation
 Run the following in a new env
 ```
