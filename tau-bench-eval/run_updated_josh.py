@@ -34,16 +34,7 @@ def build_llama_model():
         bnb_4bit_quant_type="nf4", 
         attn_implementation="flash_attention_2",
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_name)#, padding_side="left")
-
-    # use_peft=True
-    # #peft_dir = '/home/blattimer/code/multiwoz-api/checkpoints/kto-works-lambdaD=1.7_checkpoint-240/'
-    # if use_peft:
-    #     peft_dir = '/root/git/multiwoz-api/checkpoints/kto-works-lambdaD=1.7_checkpoint-240/'
-    #     #peft_dir = '/root/multiwoz-api/checkpoints/llama8instructsft-checkpoint-78/'
-    #     from peft import PeftModel, PeftConfig
-    #     model = PeftModel.from_pretrained(model, peft_dir)
-    #     # model = model.merge_and_unload()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     model.eval()
     return model, tokenizer
@@ -153,8 +144,8 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
             or "mistralai/Mi" in args.model
             or "meta-llama/Meta-Llama-3-" in args.model
         ):
-            from tau_bench.agents.gpt_function_calling_agent import (
-                GPTFunctionCallingAgent,
+            from tau_bench.agents.josh_gpt_function_calling_agent import (
+                JOSHGPTFunctionCallingAgent,
                 initialize_client,
             )
 
@@ -168,7 +159,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
                     base_url="https://api.endpoints.anyscale.com/v1",
                 )
 
-            return GPTFunctionCallingAgent(tools_info, wiki, model=args.model)
+            return JOSHGPTFunctionCallingAgent(tools_info, wiki, model=args.model)
         elif "claude" in args.model:
             from tau_bench.agents.claude_function_calling_agent import (
                 ClaudeFunctionCallingAgent,
