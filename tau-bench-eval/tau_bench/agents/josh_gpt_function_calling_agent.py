@@ -5,9 +5,9 @@ import json
 from typing import Dict, List
 
 from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_random_exponential
-
-from multiwoz_api.josh import JOSH
+# from tenacity import retry, stop_after_attempt, wait_random_exponential
+from josh_train.utils import get_openai_creds
+from josh_train.josh import JOSH, BaseJOSHAgent
 from tau_bench.agents.base import BaseAgent
 from tau_bench.agents.utils import (
     message_to_action,
@@ -20,9 +20,12 @@ client = None
 
 def initialize_client(**kwargs):
     global client
-    client = OpenAI(**kwargs)
+    creds = get_openai_creds()
+    api_key = creds['openai_key']
+    api_org = creds['openai_org']
+    client = OpenAI(api_key=api_key, organization=api_org)
 
-class JOSHAgent():
+class JOSHAgent(BaseJOSHAgent):
         def __init__(self, messages, env):
             self.messages = messages
             self.env = env

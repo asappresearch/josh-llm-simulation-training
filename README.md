@@ -29,7 +29,7 @@ You also need to set HF_TOKEN much in the same way.
 
 Then you can run a simulation by doing the following
 ```
-python multiwoz_api/main.py
+python josh/main.py
 ```
 
 Wherever you see HF_KEY please replace it by your huggingface token.

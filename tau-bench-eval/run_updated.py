@@ -15,13 +15,12 @@ from typing import Any
 from math import comb
 
 
-def build_llama_model():
+def build_llama_model(model_name, peft_dir=None):
     from huggingface_hub import login
     from transformers import AutoTokenizer, AutoModelForCausalLM
     import torch
 
     login(token="HF_TOKEN")
-    model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
     model = AutoModelForCausalLM.from_pretrained(
         model_name, 
         device_map="auto", 
@@ -32,13 +31,9 @@ def build_llama_model():
         bnb_4bit_quant_type="nf4", 
         attn_implementation="flash_attention_2",
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_name)#, padding_side="left")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    use_peft=True
-    #peft_dir = '/home/blattimer/code/multiwoz-api/checkpoints/kto-works-lambdaD=1.7_checkpoint-240/'
-    if use_peft:
-        peft_dir = '/root/code/multiwoz-api/data/sft/'
-        #peft_dir = '/root/multiwoz-api/checkpoints/llama8instructsft-checkpoint-78/'
+    if peft_dir:
         from peft import PeftModel, PeftConfig
         model = PeftModel.from_pretrained(model, peft_dir)
 
@@ -63,8 +58,8 @@ def run(
     print(
         f"Running tasks {args.start_index} to {end_index} (checkpoint path: {ckpt_path})"
     )
-    if 'llama' in  args.model:
-        model, tokenizer = build_llama_model()
+    if 'llama' in  args.model.lower():
+        model, tokenizer = build_llama_model(model_name = args.model, peft_dir=args.peft_dir)
     for i in range(args.num_trials):
         idxs = list(range(args.start_index, end_index))
         if args.shuffle:
@@ -192,7 +187,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
 
         if "gpt" in args.model:
             initialize_create(mode="openai")
-        elif "llama" in args.model:
+        elif "llama" in args.model.lower():
             initialize_create(mode="llama")
             return ChatReActAgent(tools_info, wiki, model=model, reason=args.think, tokenizer=tokenizer)
         elif "claude" in args.model:
@@ -241,7 +236,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gpt-4o",
+        default="meta-llama/Meta-Llama-3-8B-Instruct",
         choices=[
             # openai api models
             "gpt-4-turbo",
@@ -270,8 +265,12 @@ def main():
             "mistralai/Mistral-7B-Instruct-v0.1",
             "mistralai/Mixtral-8x7B-Instruct-v0.1",
             "mistralai/Mixtral-8x22B-Instruct-v0.1",
-            "llama"
         ],
+    )
+    parser.add_argument(
+        "--peft_dir",
+        type=str,
+        default=None
     )
     parser.add_argument(
         "--user_model",

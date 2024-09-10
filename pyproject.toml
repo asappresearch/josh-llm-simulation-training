@@ -3,4 +3,4 @@
 requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 
 [tool.setuptools_scm]
-write_to = "multiwoz_api/_version.py"
+write_to = "josh_train/_version.py"

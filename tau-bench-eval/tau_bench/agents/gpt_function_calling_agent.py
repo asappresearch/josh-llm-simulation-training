@@ -2,7 +2,7 @@
 
 import json
 from typing import Dict, List
-
+from josh_train.utils import get_openai_creds
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
@@ -18,7 +18,10 @@ client = None
 
 def initialize_client(**kwargs):
     global client
-    client = OpenAI(**kwargs)
+    creds = get_openai_creds()
+    api_key = creds['openai_key']
+    api_org = creds['openai_org']
+    client = OpenAI(api_key=api_key, organization=api_org)
 
 
 @retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(10))

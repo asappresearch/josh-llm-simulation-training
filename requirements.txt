@@ -12,3 +12,4 @@ pandas
 trl
 torch
 deepsig
+tiktoken

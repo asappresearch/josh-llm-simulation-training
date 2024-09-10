@@ -4,9 +4,10 @@ import copy
 import json
 import time
 import torch
-from multiwoz_api.josh import JOSH
-from multiwoz_api.utils import get_openai_creds
-from tenacity import retry, stop_after_attempt, wait_random_exponential
+from josh_train.josh import JOSH, BaseJOSHAgent
+# from tenacity import retry, stop_after_attempt, wait_random_exponential
+from josh_train.utils import get_openai_creds
+from openai import OpenAI
 
 from tau_bench.agents.base import BaseAgent
 from tau_bench.agents.utils import pretty_print_conversation
@@ -25,7 +26,7 @@ def request_llama(messages, tokenizer, model, temperature):
 def initialize_create(mode="openai", **kwargs):
     global create, create_mode
     if mode == "openai":
-        from openai import OpenAI
+        def initialize_client(**kwargs):
         creds = get_openai_creds()
         create = OpenAI(api_key=creds['openai_key'], organization=creds['openai_org'], **kwargs).chat.completions.create
         create_mode = "openai"
@@ -100,7 +101,7 @@ def get_message_action(
         action_args = json.loads(action_args)
     return message, {"name": action_name, "arguments": action_args}
 
-class JOSHAgent():
+class JOSHAgent(BaseJOSHAgent):
         def __init__(self, messages, env):
             self.messages = messages
             self.env = env
