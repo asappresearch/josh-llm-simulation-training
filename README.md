@@ -1,23 +1,21 @@
-# josh-llm-simulation-training
+# Sparse Rewards Can Self-Train Dialogue Agents
+Barrett Martin Lattimer, Varun Gangal, Ryan McDonald, Yi Yang
 
-This repo is meant to run simulations of the transformed multiwoz dataset. You can test your own agents by making 
-an AgentSimulator object.
+contact: blattimer@asapp.com
 
-This repo also contains ways of logging training and preference-annotated episodes from user-simulator interactions and LORA-driven preference tuning of small LLMs from such preference annotated experience.
+paper: tbd
 
-## Pre-installation
+This repo is currently being refactored (under the branch josh_refactor) which will be completed shortly. 
 
-(If you want to later evaluate MTBench)
-```
-unzip mtbencheval.zip
-```
+This repo runs both JOSH, the ToolWOZ, and τ-bench dataset. This repo also contains ways of logging training and preference-annotated episodes from user-simulator interactions and LORA-driven preference tuning of small LLMs from such preference annotated experience.
+
 
 ## Installation
-Run the following in a new env
+1. Run the following in a new env
 ```
 pip install -e .
 ```
-Download the ```data.json``` and ```delex.json``` files from the following link and place them in the ```data``` folder: https://drive.google.com/drive/folders/1FZmirZ6m9i769KyPEzS69DZoO25lqK-u?usp=sharing
+2. Unzip the ```dataset.zip``` file in the ```data``` folder
 
 ## Quick Start
 First, make sure you have your openai credentials in the environment
@@ -25,11 +23,19 @@ First, make sure you have your openai credentials in the environment
 export OPENAI_API_KEY= # api_key
 export OPENAI_ORGANIZATION= # api_org
 ```
-You also need to set HF_TOKEN much in the same way.
+If you're running Llama or another local model, you will also need to set HF_TOKEN much in the same way.
 
-Then you can run a simulation by doing the following
+Then you can run a simulation by doing the following example
 ```
-python multiwoz_api/main.py
+python multiwoz_api/main_prompt_oai_test.py
 ```
 
 Wherever you see HF_KEY please replace it by your huggingface token.
+
+
+## MT-Bench
+
+(If you want to later evaluate MTBench)
+```
+unzip mtbencheval.zip
+```
