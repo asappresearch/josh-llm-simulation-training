@@ -1,3 +1,5 @@
+import math
+from typing import Optional
 import yaml
 import re
 import copy
@@ -8,10 +10,12 @@ import torch
 from josh_train.utils import make_transcript, request_openai, parse_api_call, handle_api_calls
 import os
 import josh_train.config as config
+from josh_train.josh import BaseJOSHAgent
 
 
-class ReACTAgentSimulator:
-    def __init__(self, api_examples, api_defs, model_name:str, model, tokenizer, debug = False):
+class ReACTAgentSimulator(BaseJOSHAgent):
+    def __init__(self, api_examples, api_defs, model_name:Optional[str]=None, temperature=0.0, debug = False):
+        super().__init__()
         cwd = os.getcwd()
         with open(f'{cwd}/prompts/prompts.yaml', 'r') as file:
             prompts = yaml.safe_load(file)
@@ -22,26 +26,28 @@ class ReACTAgentSimulator:
             tools_list = json.load(file)
         self.MONO_PROMPT = prompts['react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.pattern = "(PLAN|APICALL|SPEAK)(.*?)(?=PLAN|APICALL|SPEAK|$)"
-        self.model = model
-        self.tokenizer = tokenizer
         self.model_name=model_name
         self.messages_full = []
         self.debug = debug
+        self.temperature = temperature
 
     def parse_agent_message(self, output):
         commands  = re.findall(self.pattern , output , re.DOTALL)
         return commands
     
     
-    def request(self, messages) -> str:
-        if self.model and self.tokenizer:
-            encoding = self.tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')
+    def request(self, messages, model=None, tokenizer=None) -> str:
+        if model and tokenizer:
+            encoding = tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')
             prompt_len=len(encoding[0])
             with torch.no_grad():
-                generated_ids = self.model.generate(encoding, max_new_tokens=256, do_sample=False)#, temperature=0.7, top_k=50, top_p=0.95)
-            return self.tokenizer.batch_decode(generated_ids[0][prompt_len:].unsqueeze(0), skip_special_tokens=True)[0]
+                if math.isclose(self.temperature, 0.0, rel_tol=1e-6):
+                    generated_ids = model.generate(encoding, max_new_tokens=256, do_sample=False)
+                else:
+                    generated_ids = model.generate(encoding, max_new_tokens=256, temperature=self.temperature, top_k=50, top_p=0.95)
+            return tokenizer.batch_decode(generated_ids[0][prompt_len:].unsqueeze(0), skip_special_tokens=True)[0]
         else:
-            output = request_openai(messages, self.model_name, config.client)
+            output = request_openai(messages, self.model_name, config.client, temperature=self.temperature)
             return output
     
     def handle_api(self, command, conversation_state):
@@ -52,14 +58,19 @@ class ReACTAgentSimulator:
         if api_values['api_name'] not in self.apis_to_examples:
             return 'FAILURE INCORRECTLY FORMATTED APICALL'
         returns = handle_api_calls(api_values['api_name'], api_values['api_args'], conversation_state=conversation_state)
-        return returns
+        called_api = {'name':api_values['api_name'], 'parameters': api_values['api_args'], 'returned': returns[0] if type(returns)==list else returns}
+        return returns, called_api
     
-    def step(self, messages, conversation_state):
-        self.messages_full.extend(messages)
+    def step(self, **kwargs):
+        conversation_state = kwargs['env']
+        model = kwargs['model']
+        tokenizer = kwargs['tokenizer']
+
+        self.recent_actions = []
         count=0
         while count < 3:
             agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_full
-            turn = self.request(agent_messages)
+            turn = self.request(agent_messages, model, tokenizer)
             if self.debug:
                 print(turn)
             parsed = self.parse_agent_message(turn.replace('<COMMAND_END>', '').strip().replace('\n','').replace('\\',''))
@@ -73,10 +84,12 @@ class ReACTAgentSimulator:
                     thought_string = 'PLAN '+command+' <COMMAND_END> '
                 elif command_type == 'SPEAK':
                     self.messages_full.append({'role':'assistant', 'content':thought_string+'SPEAK '+command+' <COMMAND_END>'})
-                    return [{'role':'assistant', 'content':command}]
+                    self.messages.append({'role':'assistant', 'content':command})
+                    return 
                 elif command_type == 'APICALL':
                     command = command.strip().replace('\n','')
-                    output = self.handle_api(command, conversation_state)
+                    output, called_api = self.handle_api(command, conversation_state)
+                    self.recent_actions.append(called_api)
                     if self.debug:
                         print(output)
                     # Add the api call
@@ -86,6 +99,5 @@ class ReACTAgentSimulator:
                 else:
                     self.messages_full.append({'role':'assistant', 'content':'ERROR: INVALID COMMAND TYPE'})
             count+=1
-
-        return [{'role':'assistant', 'content':'Error: Agent ran out of retries.'}]
-        
+        self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
+        return

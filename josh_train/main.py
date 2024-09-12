@@ -7,7 +7,7 @@ from datetime import datetime
 import os
 import math
 import random
-from josh_train.josh import BaseJOSHAgent, JOSH
+from josh_train.josh import BaseJOSHAgent, JOSH, BaseRewards
 from josh_train.utils import *
 from openai import OpenAI
 import josh_train.config as config
@@ -118,72 +118,97 @@ def build_user(args, toolwoz_env, conversation_env):
         from josh_train.users.guide_user_simulator import GuideUserSimulator
         user = GuideUserSimulator(goals=conversation_env.goals, 
                              convo=toolwoz_env.real_convos[conversation_env.convo_key],
-                             modelname=args.user_model
+                             modelname=args.user_model,
+                             debug=args.debug
                             )
     else:
         from josh_train.users.goal_user_simulator import GoalUserSimulator
         user = GoalUserSimulator(goals=conversation_env.goals, 
-                             modelname=args.user_model
+                             modelname=args.user_model,
+                             debug=args.debug
                             )
     return user
 
-def build_agent(args, toolwoz_env, conversation_env):
-    if args.josh:
-        pass
+def build_agent(args, toolwoz_env):
+    if args.agent_strategy == 'react':
+        from josh_train.agents.react_agent import ReACTAgentSimulator
+        agent = ReACTAgentSimulator(
+                        toolwoz_env.api_examples, 
+                        toolwoz_env.valid_api_defs,
+                        model_name=args.model,
+                        debug=args.debug,
+                        temperature= args.temperature,
+                        )
+    elif args.agent_strategy == 'function_calling':
+        from josh_train.agents.fc_agent import FCAgentSimulator
+        agent = FCAgentSimulator(
+                        toolwoz_env.api_examples, 
+                        toolwoz_env.valid_api_defs,
+                        model_name=args.model, 
+                        debug=args.debug,
+                        temperature = args.temperature
+                        )
     else:
-        if args.agent_strategy == 'react':
-            from josh_train.agents.react_agent import ReACTAgentSimulator
-            agent = ReACTAgentSimulator(
-                            toolwoz_env.api_examples, 
-                            toolwoz_env.valid_api_defs,
-                            model_name=args.model, 
-                            model=toolwoz_env.model, 
-                            tokenizer=toolwoz_env.tokenizer,
-                            debug=args.debug
-                            )
-        elif args.agent_strategy == 'function_calling':
-            from josh_train.agents.fc_agent import FCAgentSimulator
-            agent = FCAgentSimulator(
-                            toolwoz_env.api_examples, 
-                            toolwoz_env.valid_api_defs,
-                            model_name=args.model, 
-                            debug=args.debug
-                            )
-        else:
-            raise ValueError(f'Agent strategy {args.agent_strategy} not supported')
+        raise ValueError(f'Agent strategy {args.agent_strategy} not supported')
     return agent
 
-def _run_conversation_normal(args, agent, user, convo_env):
-    messages = []
-    while len(messages)<args.max_convo_turns:
-        user_response = user.step(messages)
-        messages += user_response
-        if args.debug:
-            print('#'*30)
-            print(f'USER: {user_response[0]["content"]}')
-            print('#'*30)
-        if 'END_CONVERSATION' in user_response[0]['content']:
+def _run_conversation_normal(args, agent, user, convo_env, toolwoz_env):
+    while len(agent.messages)<args.max_convo_turns:
+        agent, convo_over = user.step(agent)
+        if convo_over:
             break
-        agent_response = agent.step(user_response, convo_env)
-        messages += agent_response
+        agent.step(model=toolwoz_env.model, tokenizer=toolwoz_env.tokenizer, env=convo_env)
     reward, failed_api = convo_env.evaluate_apis()
 
-    return messages, reward, failed_api, {'internal_messages':agent.messages_full}
+    return reward, {'messages':agent.messages, 'failed_apis':failed_api, 'internal_messages':agent.messages_full}
 
-def _run_conversation_josh(args, agent, user, convo_env):
-    messages = []
-    user_response = user.step(messages)
-    messages += user_response
+class ToolWOZRewards(BaseRewards):
+    def __init__(self, env):
+        self.env = env
+        self.rewards = []
+        for domain in env.apis_for_eval.keys():
+            for api in env.apis_for_eval[domain]['success'].keys():
+                self.rewards.append((domain, api))
+        super().__init__(self.rewards)
+
+    def is_reward(self, agent_actions):
+        correct_calls, _, _, apis_to_delete = self.env.evaluate_apis(agent_actions)
+        got_reward = correct_calls>0
+
+        return got_reward, apis_to_delete
+    
+    def delete_reward(self, rewards_to_delete):
+        for reward_to_delete in rewards_to_delete:
+            self.rewards.remove(reward_to_delete)
+            del self.env.apis_for_eval[reward_to_delete[0]]['success'][reward_to_delete[1]]
+
+
+def _run_conversation_josh(args, agent, user, convo_env, toolwoz_env):
+    agent, _ = user.step(agent)
     def add_error_message(agent):
         agent.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
-        agent.recent_action = {'role':'assistant', 'content':'Error: Agent ran out of retries.'}
         return agent
+    
+    def step_agent(agent:BaseJOSHAgent, **kwargs):
+        agent.step(**kwargs)
+        return agent, True
+    
+    def step_user(user, agent:BaseJOSHAgent):
+        return user.step(agent)
+    
     josh = JOSH(
-                rewards=copy.deepcopy(env.task['actions']), 
-                agent_step=agent.step,
-                user_step=user.step, 
+                rewards=ToolWOZRewards(convo_env),
+                agent_step=step_agent,
+                user_step=step_user,
                 add_error_message=add_error_message,
-                root_agent = BaseJOSHAgent(messages)
+                root_agent = agent,
+                user = user,
+                agent_model = toolwoz_env.model,
+                agent_tokenizer=toolwoz_env.tokenizer,
+                agent_env=convo_env,
+                beam_size=args.beam_size,
+                max_turn_tries=args.josh_agent_tries,
+                debug=args.josh_debug,
             )
     for _ in range(15):
         try:
@@ -197,17 +222,17 @@ def _run_conversation_josh(args, agent, user, convo_env):
     training_examples = []
     for ex in josh.training_examples:
         example = ({'messages':ex[0]}, ex[1], ex[2])
-        if args.agent_mode == 'function_callling':
+        if args.agent_strategy == 'function_callling':
             example[0]['tools'] = agent.tool_list
         training_examples.append(example)
 
     return max_reward, {'training_examples':training_examples}
 
-def run_conversation(args, agent, user, convo_env):
+def run_conversation(args, agent, user, convo_env, toolwoz_env):
     if not args.josh:
-        return _run_conversation_normal(args, agent, user, convo_env)
+        return _run_conversation_normal(args, agent, user, convo_env, toolwoz_env)
     else:
-        return _run_conversation_josh(args, agent, user, convo_env)
+        return _run_conversation_josh(args, agent, user, convo_env, toolwoz_env)
 
 def driver(
     args: argparse.Namespace,
@@ -235,16 +260,14 @@ def driver(
     def _run(idx: int) -> dict:
         convo_env = build_convo_env(args, toolwoz_env.set_to_run[idx], toolwoz_env)
         user = build_user(args, toolwoz_env, convo_env)
-        agent = build_agent(args, toolwoz_env, convo_env)
+        agent = build_agent(args, toolwoz_env)
 
         print(f"Running simulation {idx} ({toolwoz_env.set_to_run[idx]})")
         try:
-            messages, reward, failed_api, extra_data = run_conversation(args, agent, user, convo_env)
-            result = {
+            reward, extra_data = run_conversation(args, agent, user, convo_env, toolwoz_env)
+            result =  {
                 'id':toolwoz_env.set_to_run[idx],
                 'reward':reward,
-                'failed_apis':failed_api,
-                'messages':messages,
                 **extra_data,
             }
         except Exception as e:
@@ -252,11 +275,13 @@ def driver(
             reward=0.0
             messages = []
             failed_api=[]
+            training_examples=[]
             result = {
                 'id':toolwoz_env.set_to_run[idx],
                 'reward':reward,
                 'failed_apis':failed_api,
                 'messages':messages,
+                'training_examples':training_examples,
                 'error':"Error: " + str(e)
             }
         convo_env.close_convos()
@@ -348,6 +373,7 @@ def main():
     parser.add_argument("--end_index", type=int, default=-1, help="Run all tasks if -1")
     parser.add_argument("--max_convo_turns", type=int, default=15, help="Number of user/agent turns that can run in one convo")
     parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--josh_debug", action="store_true", default=False)
     parser.add_argument("--josh", action="store_true", default=False)
     parser.add_argument("--log_dir", type=str, default="records")
     parser.add_argument(
@@ -363,6 +389,9 @@ def main():
     args = parser.parse_args()
     print(args)
     random.seed(args.seed)
+
+    if args.josh and math.isclose(args.temperature, 0.0, rel_tol=1e-6):
+        raise ValueError('JOSH should be ran with nonzero temperature')
 
     time_str = datetime.now().strftime("%m%d%H%M%S")
     file_str = f"{args.log_dir}/{args.agent_strategy}-{args.model.split('/')[-1]}-{args.temperature}_range_{args.start_index}-{args.end_index}_user{args.user_model}_{time_str}.json"

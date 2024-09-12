@@ -1,7 +1,9 @@
+import copy
 import yaml
 from josh_train.utils import make_transcript, request_openai
 from josh_train.users.base_user_simulator import BaseUserSimulator
 import josh_train.config as config
+from josh_train.josh import BaseJOSHAgent
 guide_prompt = """You are a coach giving tips to a user simulator trying to replicate a conversation as consistently as possible. The user simulator is in the middle of a conversation, give it advice on what to do in the next turn.
 Consistency means that over multiple runs, the user simulator should behave in the exact same way, it is your job to try and help it stay on the same trajectory every run.
 
@@ -37,7 +39,7 @@ Output:
 """
 
 class GuideUserSimulator(BaseUserSimulator):
-    def __init__(self, goals, convo, modelname='gpt-4o-2024-05-13'):
+    def __init__(self, goals, convo, modelname='gpt-4o-2024-05-13', debug=False):
         self.goals = goals['message']
         with open('prompts/prompts.yaml', 'r') as file:
             prompts = yaml.safe_load(file)
@@ -46,6 +48,7 @@ class GuideUserSimulator(BaseUserSimulator):
         self.opening_prompt = prompts['user_simulator_opening_message_prompt'].replace('{goals}', '\n'.join(self.goals))
         self.system_prompt = prompts['user_simulator_system_prompt'].replace('{goals}', '\n'.join(self.goals))
         self.convo = []
+        self.debug = debug
         for log in convo['log']:
             tag = 'agent: ' if log['metadata'] else 'customer: '
             self.convo.append(tag+log['text'].strip())
@@ -53,10 +56,21 @@ class GuideUserSimulator(BaseUserSimulator):
         mod_messages = [{'role':'user' if message['role']=='assistant' else 'assistant', 'content':message['content']} for message in messages]
         return [{'role': 'system', 'content': self.system_prompt if not system else system}] + mod_messages +  [{'role': 'system', 'content':self.prompt if not prompt else prompt}]
     
-    def step(self, messages):
-        user_sim_messages = self.make_messages(messages=messages)
+    def step(self, agent):
+        user_sim_messages = copy.deepcopy(agent.messages)
         transcript = make_transcript(user_sim_messages, {'assistant':'user', 'user':'agent'})
         filled_guide_prompt = guide_prompt.replace('{goals}', '\n'.join(self.goals)).replace('{goal_convo}', '\n'.join(self.convo)).replace('{current_convo}', transcript if len(transcript)!=0 else 'NOT YET STARTED')
         output_guide = request_openai([{'role': 'user', 'content': filled_guide_prompt}], self.modelname, config.client)
         output = output_guide.split("Suggested quote:")[-1].replace('\n', '').replace('"', '')
-        return [{'role': 'user', 'content': output}]
+
+        if self.debug:
+            print('#'*30)
+            print(f'USER: {output}')
+            print('#'*30)
+
+        agent.messages.append({'role': 'user', 'content': output})
+        agent.messages_full.append({'role': 'user', 'content': output})
+        
+        end_convo = 'END_CONVERSATION' in output
+
+        return agent, end_convo

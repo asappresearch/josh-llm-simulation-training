@@ -2,11 +2,13 @@ import copy
 import numpy as np
 from typing import Optional
 
-class BaseJOSHAgent():
-    def __init__(self, messages):
-        self.messages = messages
-        self.done = False
-        self.recent_action = None
+class BaseJOSHAgent:
+    def __init__(self):
+        self.messages = []
+        self.recent_actions = []
+
+    def step(self, **kwargs):
+        return self, True
 
 class Node:
     def __init__(self, agent:BaseJOSHAgent, parent: Optional["Node"]=None):
@@ -40,11 +42,29 @@ class Node:
             tree.extend(self.right.get_tree())
 
         return tree
-    
 
+class BaseRewards:
+    def __init__(self, rewards):
+        self.rewards = rewards
+    def __len__(self):
+        return len(self.rewards)
+    def is_reward(self, agent_actions):
+        got_reward = False
+        rewards_to_delete = []
+        for agent_action in agent_actions:
+            got_reward_tmp = agent_action in self.rewards
+            got_reward = got_reward or got_reward_tmp
+            if got_reward_tmp:
+                reward_index = self.rewards.index(agent_action)
+                rewards_to_delete.append(self.rewards[reward_index])
+        return got_reward, rewards_to_delete
+
+    def delete_reward(self, rewards_to_delete):
+        for reward_to_delete in rewards_to_delete:
+            self.rewards.remove(reward_to_delete)
 
 class JOSH():
-    def __init__(self, rewards, agent_step, user_step, add_error_message, root_agent: BaseJOSHAgent, beam_size=8, max_turn_tries=10):
+    def __init__(self, rewards:BaseRewards, agent_step, user_step, add_error_message, root_agent: BaseJOSHAgent, user, beam_size=8, max_turn_tries=10, agent_model=None, agent_tokenizer=None, agent_env=None, debug=False):
         self.agent_step = agent_step
         self.user_step = user_step
         self.add_error_message = add_error_message
@@ -57,6 +77,11 @@ class JOSH():
         self.rewards = rewards
         self.num_total_rewards = len(rewards)
         self.golden_agent = None
+        self.agent_model = agent_model
+        self.agent_tokenizer = agent_tokenizer
+        self.agent_env = agent_env
+        self.user = user
+        self.debug = debug
 
     def set_root_agent(self, agent):
         self.root.agent = agent
@@ -75,17 +100,15 @@ class JOSH():
         self.set_golden_path(success_node.parent)
         return 
     
-    def is_reward(self, agent):
-        return agent.recent_action in self.rewards
-            
     def step_user(self):
         leaves = np.array(self.root.get_leaves())
         if len(leaves)==0:
             return True
+        if self.debug:
+            print(f'Running {len(leaves)} users')
         for leaf in leaves:
-            leaf.agent = self.user_step(leaf.agent)
-            if leaf.agent.done:
-                leaf.conversation_over = True
+            leaf.agent, end_conversation = self.user_step(self.user, leaf.agent)
+            leaf.conversation_over = end_conversation
 
         leaves = np.array(self.root.get_leaves())
         return len(leaves)==0
@@ -95,47 +118,43 @@ class JOSH():
         if len(leaves)==0:
             return True
         # Step for each leaf
+        if self.debug:
+            print(f'Running {len(leaves)} agents')
         count = 0
         done = np.array([False]*len(leaves))
         training_examples = []
         collapse_root_to = None
         successful_leaves = []
-        api_to_delete = None
         while count < self.max_turn_tries:
             unfinished_leaf_indices = np.where(done==False)[0]
             if len(unfinished_leaf_indices)==0:
                 break
             unfinished_leaves = leaves[unfinished_leaf_indices]
 
-            batch_size=2
             turn_finished = []
-            for i in range(0, len(unfinished_leaves), batch_size):
-                batch = unfinished_leaves[i:i+batch_size]
-                for j, lf in enumerate(batch):
-                    lf.agent, pass_to_customer = self.agent_step(lf.agent)
-                    if pass_to_customer is None:
-                        turn_finished.append(True)
-                        lf.conversation_over = True
-                    else:
-                        turn_finished.append(pass_to_customer)
+            for lf in unfinished_leaves:
+                lf.agent, pass_to_customer = self.agent_step(agent=lf.agent, model=self.agent_model, tokenizer=self.agent_tokenizer, env = self.agent_env)
+                if pass_to_customer is None:
+                    turn_finished.append(True)
+                    lf.conversation_over = True
+                else:
+                    turn_finished.append(pass_to_customer)
 
 
             for idx, turn in enumerate(unfinished_leaves):
-                if turn.agent.done or turn_finished[idx]:
+                if turn_finished[idx]:
                     done[unfinished_leaf_indices[idx]] = True
-                else:
-                    if self.is_reward(turn.agent):
-                        successful_leaves.append(turn)
-                        if not collapse_root_to:
-                            collapse_root_to = unfinished_leaves[idx]
-                            api_to_delete = copy.deepcopy(collapse_root_to.agent.recent_action)
-                            if len(self.rewards)==1:
-                                self.golden_agent = turn.agent
-                    # else:
-                    #     # if it's made an api call that was not part of the desired actions, kill it
-                    #     done[unfinished_leaf_indices[idx]] = True
-                    #     turn.conversation_over=True
-                        
+
+                got_reward, rw_to_delete = self.rewards.is_reward(turn.agent.recent_actions)
+                if got_reward:
+                    successful_leaves.append(turn)
+                    if not collapse_root_to:
+                        if self.debug:
+                            print(f'🌟 Got reward')
+                        collapse_root_to = unfinished_leaves[idx]
+                        rewards_to_delete = copy.deepcopy(rw_to_delete)
+                        if len(self.rewards)==1:
+                            self.golden_agent = turn.agent
                     
                 if count+1 == self.max_turn_tries:
                     turn.agent = self.add_error_message(turn.agent)
@@ -143,11 +162,13 @@ class JOSH():
             count += 1
         
         if collapse_root_to:
+            if self.debug:
+                print(f'🪓👷 Collapsing tree')
             # set the descendence of all successful leaves as successful
             for leaf in successful_leaves:
                 self.set_success_path(leaf)
-
-            self.rewards.remove(api_to_delete)
+            
+            self.rewards.delete_reward(rewards_to_delete)
             self.set_golden_path(collapse_root_to)
             training_examples = self.root.get_tree()
             self.training_examples.extend(training_examples)
@@ -166,6 +187,8 @@ class JOSH():
         make_more_leaves = len(leaves)*2<=self.beam_size
         # Add messages to each leaf
         if make_more_leaves:
+            if self.debug:
+                print(f'🌲 Expanding tree to {len([l for l in leaves if not l.conversation_over])*2} leaves')
             for leaf in leaves:
                 # If the user ended the conversation, kill the leaf and keep going
                 if leaf.conversation_over:
@@ -173,10 +196,12 @@ class JOSH():
                 # Extend leaves
                 leaf.left = Node(copy.deepcopy(leaf.agent), parent=leaf)
                 leaf.right = Node(copy.deepcopy(leaf.agent), parent=leaf)
+        elif self.debug:
+            print(f'🎄 Tree at maximum size')
 
     def step(self):
         self.expand_tree()
-
+        
         all_done = self.step_agent()
         if not all_done:
             all_done = self.step_user()

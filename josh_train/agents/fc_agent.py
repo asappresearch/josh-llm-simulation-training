@@ -1,13 +1,15 @@
+from typing import Optional
 import yaml
 import copy
 import json
 from josh_train.utils import request_openai, handle_api_calls
 import os
 import josh_train.config as config
-import josh_train.josh as BaseJOSHAgent
+from josh_train.josh import BaseJOSHAgent
 
 class FCAgentSimulator(BaseJOSHAgent):
-    def __init__(self, api_examples, api_defs, model_name, debug=False):
+    def __init__(self, api_examples, api_defs, model_name:Optional[str]=None, temperature = 0.0, debug=False):
+        super().__init__()
         cwd = os.getcwd()
         with open(f'{cwd}/prompts/prompts.yaml', 'r') as file:
             prompts = yaml.safe_load(file)
@@ -27,9 +29,7 @@ class FCAgentSimulator(BaseJOSHAgent):
         self.messages_full = []
         self.modelname = model_name
         self.debug = debug
-
-        self.done = False
-        self.recent_action = None
+        self.temperature = temperature
 
     def _create_oai_function_list(self, api_examples):
         official_list = []
@@ -42,7 +42,7 @@ class FCAgentSimulator(BaseJOSHAgent):
         return official_list
     
     def request(self, messages):
-        output = request_openai(messages, self.modelname, config.client, tools=self.tool_list)
+        output = request_openai(messages, self.modelname, config.client, tools=self.tool_list, temperature=self.temperature)
         return output
     
 
@@ -71,6 +71,7 @@ class FCAgentSimulator(BaseJOSHAgent):
             if self.debug:
                 print(json.dumps(api_call))
             api_returns = handle_api_calls(api_call['name'], api_call['arguments'], conversation_state=conversation_state)
+            self.recent_actions.append({'name':api_call['name'], 'parameters': api_call['arguments'], 'returned': api_returns[0] if type(api_returns)==list else api_returns})
             if self.debug:
                 print(json.dumps(api_returns))
             # Add the return
@@ -90,8 +91,10 @@ class FCAgentSimulator(BaseJOSHAgent):
             msg_return.append({'role':'assistant', 'content':turn.content})
             return msg_return
     
-    def step(self, messages, conversation_state):
-        self.messages_full.extend(messages)
+    def step(self, **kwargs):
+        conversation_state = kwargs['env']
+
+        self.recent_actions = []
         count=0
         while count < 3:
             agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_full
@@ -99,8 +102,10 @@ class FCAgentSimulator(BaseJOSHAgent):
             message_return = self._step(turn, conversation_state)
             self.messages_full.extend(message_return)
             if all([x['role']!='tool' for x in message_return]):
-                return message_return
+                self.messages.extend(message_return)
+                return
             count+=1
-        # self.messages_full.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
-        return [{'role':'assistant', 'content':'Error: Agent ran out of retries.'}]
+        self.messages_full.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
+        self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
+        return 
         
