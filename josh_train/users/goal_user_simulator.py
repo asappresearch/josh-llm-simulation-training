@@ -33,9 +33,9 @@ class GoalUserSimulator(BaseUserSimulator):
             print('#'*30)
             print(f'USER: {output}')
             print('#'*30)
-            
+
         agent.messages.append({'role': 'user', 'content': output})
-        agent.messages_full.append({'role': 'user', 'content': output})
+        agent.messages_internal.append({'role': 'user', 'content': output})
         
         end_convo = 'END_CONVERSATION' in output
         return agent, end_convo

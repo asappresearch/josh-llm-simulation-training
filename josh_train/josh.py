@@ -5,6 +5,7 @@ from typing import Optional
 class BaseJOSHAgent:
     def __init__(self):
         self.messages = []
+        self.messages_internal = []
         self.recent_actions = []
 
     def step(self, **kwargs):
@@ -34,7 +35,7 @@ class Node:
          return leaves
     
     def get_tree(self):
-        tree = [(self.agent.messages, self.is_successful, self.is_golden_path)]
+        tree = [(self.agent.messages_internal, self.is_successful, self.is_golden_path)]
 
         if self.left:
             tree.extend(self.left.get_tree())

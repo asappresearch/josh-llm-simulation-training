@@ -26,7 +26,6 @@ class FCAgentSimulator(BaseJOSHAgent):
                 json.dump(tools_list, file, indent=2)
         self.tool_list = tools_list
         self.MONO_PROMPT = "You are a travel agent. Help the customer with the provided apis. Do not say you can do something you cannot. You can only do things with the provided apis."
-        self.messages_full = []
         self.modelname = model_name
         self.debug = debug
         self.temperature = temperature
@@ -97,15 +96,15 @@ class FCAgentSimulator(BaseJOSHAgent):
         self.recent_actions = []
         count=0
         while count < 3:
-            agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_full
+            agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_internal
             turn = self.request(agent_messages)
             message_return = self._step(turn, conversation_state)
-            self.messages_full.extend(message_return)
+            self.messages_internal.extend(message_return)
             if all([x['role']!='tool' for x in message_return]):
                 self.messages.extend(message_return)
                 return
             count+=1
-        self.messages_full.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
+        self.messages_internal.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
         self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
         return 
         

@@ -27,7 +27,6 @@ class ReACTAgentSimulator(BaseJOSHAgent):
         self.MONO_PROMPT = prompts['react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.pattern = "(PLAN|APICALL|SPEAK)(.*?)(?=PLAN|APICALL|SPEAK|$)"
         self.model_name=model_name
-        self.messages_full = []
         self.debug = debug
         self.temperature = temperature
 
@@ -69,13 +68,13 @@ class ReACTAgentSimulator(BaseJOSHAgent):
         self.recent_actions = []
         count=0
         while count < 3:
-            agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_full
+            agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_internal
             turn = self.request(agent_messages, model, tokenizer)
             if self.debug:
                 print(turn)
             parsed = self.parse_agent_message(turn.replace('<COMMAND_END>', '').strip().replace('\n','').replace('\\',''))
             if len(parsed)==0:
-                self.messages_full.append({'role':'assistant', 'content':'ERROR: NO COMMAND FOUND'})
+                self.messages_internal.append({'role':'assistant', 'content':'ERROR: NO COMMAND FOUND'})
             thought_string = ''
             for command_type, command in parsed:
                 command_type = command_type.strip()
@@ -83,7 +82,7 @@ class ReACTAgentSimulator(BaseJOSHAgent):
                 if command_type=='PLAN':
                     thought_string = 'PLAN '+command+' <COMMAND_END> '
                 elif command_type == 'SPEAK':
-                    self.messages_full.append({'role':'assistant', 'content':thought_string+'SPEAK '+command+' <COMMAND_END>'})
+                    self.messages_internal.append({'role':'assistant', 'content':thought_string+'SPEAK '+command+' <COMMAND_END>'})
                     self.messages.append({'role':'assistant', 'content':command})
                     return 
                 elif command_type == 'APICALL':
@@ -93,11 +92,11 @@ class ReACTAgentSimulator(BaseJOSHAgent):
                     if self.debug:
                         print(output)
                     # Add the api call
-                    self.messages_full.append({'role':'assistant', 'content':thought_string+'APICALL '+command+' <COMMAND_END>'})
+                    self.messages_internal.append({'role':'assistant', 'content':thought_string+'APICALL '+command+' <COMMAND_END>'})
                     # Add the return
-                    self.messages_full.append({'role':'user', 'content':'APIRETURN ' + json.dumps(output)})
+                    self.messages_internal.append({'role':'user', 'content':'APIRETURN ' + json.dumps(output)})
                 else:
-                    self.messages_full.append({'role':'assistant', 'content':'ERROR: INVALID COMMAND TYPE'})
+                    self.messages_internal.append({'role':'assistant', 'content':'ERROR: INVALID COMMAND TYPE'})
             count+=1
         self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
         return
