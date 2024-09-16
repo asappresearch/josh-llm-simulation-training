@@ -159,7 +159,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
                     base_url="https://api.endpoints.anyscale.com/v1",
                 )
 
-            return JOSHGPTFunctionCallingAgent(tools_info, wiki, model=args.model)
+            return JOSHGPTFunctionCallingAgent(tools_info, wiki, model=args.model, debug=args.josh_debug)
         elif "claude" in args.model:
             from tau_bench.agents.claude_function_calling_agent import (
                 ClaudeFunctionCallingAgent,
@@ -194,7 +194,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
             initialize_create(mode="openai")
         elif "llama" in args.model:
             initialize_create(mode="llama")
-            return JOSHReActAgent(tools_info, wiki, model=model, reason=args.think, tokenizer=tokenizer)
+            return JOSHReActAgent(tools_info, wiki, model=model, reason=args.think, tokenizer=tokenizer, debug=args.josh_debug)
         elif "claude" in args.model:
             initialize_create(mode="anthropic")
         elif "gemini" in args.model:
@@ -205,7 +205,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
                 api_key=os.getenv("ANYSCALE_API_KEY"),
                 base_url="https://api.endpoints.anyscale.com/v1",
             )
-        return JOSHReActAgent(tools_info, wiki, model=args.model, reason=args.think)
+        return JOSHReActAgent(tools_info, wiki, model=args.model, reason=args.think, debug=args.josh_debug)
     else:
         raise ValueError(f"Unknown agent strategy: {args.agent_strategy}")
 
@@ -304,6 +304,7 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=10)
     parser.add_argument("--shuffle", type=int, default=0)
+    parser.add_argument("--josh_debug", action="store_true", default=False)
 
     args = parser.parse_args()
     print(args)

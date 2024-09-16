@@ -3,13 +3,30 @@ import numpy as np
 from typing import Optional
 
 class BaseJOSHAgent:
-    def __init__(self):
-        self.messages = []
-        self.messages_internal = []
+    def __init__(self, messages=None):
+        if not messages:
+            self.messages = []
+            self.messages_internal = []
+        else:
+            self.messages = copy.deepcopy(messages)
+            self.messages_internal = copy.deepcopy(messages)
         self.recent_actions = []
 
     def step(self, **kwargs):
         return self, True
+    
+    def add_message(self, message):
+        self.messages.append(message)
+        self.messages_internal.append(message)
+    
+def trim_user_msg(messages):
+    for idx, dic in enumerate(reversed(messages)):
+        if dic.get('role')=='user':
+            continue
+        break
+    if idx == 0:
+        return messages
+    return messages[:-1*idx]
 
 class Node:
     def __init__(self, agent:BaseJOSHAgent, parent: Optional["Node"]=None):
@@ -35,7 +52,7 @@ class Node:
          return leaves
     
     def get_tree(self):
-        tree = [(self.agent.messages_internal, self.is_successful, self.is_golden_path)]
+        tree = [(trim_user_msg(copy.deepcopy(self.agent.messages_internal)), self.is_successful, self.is_golden_path)]
 
         if self.left:
             tree.extend(self.left.get_tree())
@@ -172,7 +189,9 @@ class JOSH():
             self.rewards.delete_reward(rewards_to_delete)
             self.set_golden_path(collapse_root_to)
             training_examples = self.root.get_tree()
-            self.training_examples.extend(training_examples)
+            for ex in training_examples:
+                if ex not in self.training_examples:
+                    self.training_examples.append(ex)
             self.root = collapse_root_to
             self.root.parent=None
             self.root.is_successful = False

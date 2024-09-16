@@ -4,7 +4,7 @@ import copy
 import json
 import time
 import torch
-from josh_train.josh import JOSH, BaseJOSHAgent
+from josh_train.josh import JOSH, BaseJOSHAgent, BaseRewards
 # from tenacity import retry, stop_after_attempt, wait_random_exponential
 from josh_train.utils import get_openai_creds
 from openai import OpenAI
@@ -26,7 +26,7 @@ def request_llama(messages, tokenizer, model, temperature):
 def initialize_create(mode="openai", **kwargs):
     global create, create_mode
     if mode == "openai":
-        def initialize_client(**kwargs):
+        # def initialize_client(**kwargs):
         creds = get_openai_creds()
         create = OpenAI(api_key=creds['openai_key'], organization=creds['openai_org'], **kwargs).chat.completions.create
         create_mode = "openai"
@@ -102,17 +102,20 @@ def get_message_action(
     return message, {"name": action_name, "arguments": action_args}
 
 class JOSHAgent(BaseJOSHAgent):
-        def __init__(self, messages, env):
-            self.messages = messages
-            self.env = env
-            self.reward = 0
-            self.done = False
-            self.info = None
-            self.recent_action = None
+    def __init__(self, messages, env):
+        super().__init__(messages=messages)
+        self.env = env
+        self.reward = 0
+        self.done = False
+        self.info = None
+
+class TBRewards(BaseRewards):
+    def __init__(self, rewards):
+        super().__init__(rewards)
 
 
 class JOSHReActAgent(BaseAgent):
-    def __init__(self, tools, wiki, model: str = "gpt-4-turbo", reason: bool = True, tokenizer=None):
+    def __init__(self, tools, wiki, model: str = "gpt-4-turbo", reason: bool = True, tokenizer=None, debug=False):
         instruction = react_instruction if reason else act_instruction
         self.prompt = wiki + "\n#Available tools\n" + json.dumps(tools) + instruction
         self.model = model
@@ -121,64 +124,8 @@ class JOSHReActAgent(BaseAgent):
         else:
             self.tokenizer = None
         self.temperature = 1.0
+        self.debug = debug
         self.reset()
-
-    def call_agent(self, agent):
-        """
-        Returns the agent and whether it is ready to pass to the customer
-        """
-
-        try:
-            if self.tokenizer:
-                message, action = get_message_action(
-                                agent.messages, self.model, temperature=self.temperature, tokenizer=self.tokenizer
-                            )
-            else:
-                message, action = get_message_action(
-                            agent.messages, self.model, temperature=self.temperature
-                        )
-        except Exception as e:
-            print(e)
-            agent.done = True
-            return agent, None
-
-        if not isinstance(action, dict):
-            raise TypeError("action must be a dictionary")
-        if "name" not in action or not isinstance(action["name"], str):
-            raise ValueError("action: 'name' key must be present and must be a string")
-        if "arguments" not in action or not isinstance(action["arguments"], dict):
-            raise ValueError(
-                "action: 'arguments' key must be present and must be a dictionary"
-            )
-        
-        agent.recent_action = action
-        if action["name"] == "respond":
-            agent.messages.append({"role": "assistant", "content": message})
-            return agent, True
-        
-        obs, reward, done, info = agent.env.step(action)
-        obs = "API output: " + obs
-        agent.messages.append({"role": "assistant", "content": message})
-        agent.messages.append({"role": "user", "content": obs})
-
-        agent.reward = reward
-        agent.done = done
-        agent.info = info
-        return agent, False
-        
-
-    def call_user(self, agent):
-        obs, reward, done, info = agent.env.step(agent.recent_action)
-        agent.messages.append({"role": "user", "content": obs})
-        agent.reward = reward
-        agent.done = done
-        agent.info = info
-        return agent
-    
-    def add_error_message(self, agent):
-        agent.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
-        agent.recent_action = {"name": 'respond', "arguments": 'Error: Agent ran out of retries.'}
-        return agent
 
     def reset(self):
         self.messages = [{"role": "system", "content": self.prompt}]
@@ -189,12 +136,75 @@ class JOSHReActAgent(BaseAgent):
         self.reset()
         obs, info = env.reset(index=index)
         self.messages.append({"role": "user", "content": obs})
+
+
+        def call_agent(agent, **kwargs):
+            """
+            Returns the agent and whether it is ready to pass to the customer
+            """
+
+            try:
+                if self.tokenizer:
+                    message, action = get_message_action(
+                                    agent.messages, self.model, temperature=self.temperature, tokenizer=self.tokenizer
+                                )
+                else:
+                    message, action = get_message_action(
+                                agent.messages, self.model, temperature=self.temperature
+                            )
+            except Exception as e:
+                print(e)
+                agent.done = True
+                return agent, None
+
+            if not isinstance(action, dict):
+                raise TypeError("action must be a dictionary")
+            if "name" not in action or not isinstance(action["name"], str):
+                raise ValueError("action: 'name' key must be present and must be a string")
+            if "arguments" not in action or not isinstance(action["arguments"], dict):
+                raise ValueError(
+                    "action: 'arguments' key must be present and must be a dictionary"
+                )
+            
+            agent.recent_actions = [action]
+            if action["name"] == "respond":
+                agent.add_message({"role": "assistant", "content": message})
+                return agent, True
+            
+            obs, reward, done, info = agent.env.step(action)
+            obs = "API output: " + obs
+            agent.add_message({"role": "assistant", "content": message})
+            agent.add_message({"role": "user", "content": obs})
+
+            agent.reward = reward
+            agent.done = done
+            agent.info = info
+            return agent, False
+            
+
+        def call_user(user, agent):
+            obs, reward, done, info = agent.env.step(agent.recent_actions[0])
+            agent.add_message({"role": "user", "content": obs})
+            agent.reward = reward
+            agent.done = done
+            agent.info = info
+            return agent, done
+        
+        def add_error_message(agent):
+            agent.add_message({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
+            agent.recent_actions = [{"name": 'respond', "arguments": 'Error: Agent ran out of retries.'}]
+            return agent
+
+
+
         josh = JOSH(
-                rewards=copy.deepcopy(env.task['actions']), 
-                agent_step=self.call_agent,
-                user_step=self.call_user, 
-                add_error_message=self.add_error_message,
-                root_agent = JOSHAgent(self.messages, env)
+                rewards=TBRewards(copy.deepcopy(env.task['actions'])), 
+                agent_step=call_agent,
+                user_step=call_user, 
+                add_error_message=add_error_message,
+                root_agent = JOSHAgent(copy.deepcopy(self.messages), env),
+                user=None,
+                debug=self.debug
             )
         max_reward = 0.0
         for _ in range(15):
