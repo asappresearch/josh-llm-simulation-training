@@ -1,13 +1,15 @@
 import sqlite3
 import json
 import ast
-from typing import Any
+from typing import Any, List
 from dotenv import load_dotenv
 import os
 import time
 import tiktoken
 import re
 from colorama import Back, Fore, Style
+import pandas as pd
+import pandasql as psql
 
 with open('data/valid_api_defs.json', 'r') as file:
     valid_api_defs = json.load(file)
@@ -84,7 +86,7 @@ def get_openai_creds():
             "Pro tip: you can create a `.env` file in your project's root directory with these "
             + "values, and they will be loaded automatically."
         )
-        return None
+        raise ValueError(f"Failed to load OpenAICreds. Missing envionment variable(s): {missing_keys_str}")
 
     return {
         'openai_key':openai_key,
@@ -112,14 +114,14 @@ def get_hf_creds():
             "Pro tip: you can create a `.env` file in your project's root directory with these "
             + "values, and they will be loaded automatically."
         )
-        return None
+        raise ValueError(f"Failed to load HF Creds. Missing envionment variable(s): {missing_keys_str}")
 
     return {
         'hf_token':hf_token,
         }
 
 
-def request_openai(messages, model, client, max_tokens=256, temperature=0.0, response_format=None, n=1):
+def request_openai(messages, model, client, max_tokens=256, temperature=0.0, response_format=None, tools = None):
     retries = 0
     retry_limit = 4
     success = False
@@ -131,7 +133,8 @@ def request_openai(messages, model, client, max_tokens=256, temperature=0.0, res
                 max_tokens=max_tokens,
                 response_format=response_format,
                 seed=42,
-                temperature=temperature)
+                temperature=temperature,
+                tools=tools)
             success = True
             break
         except:
@@ -147,12 +150,13 @@ def request_openai(messages, model, client, max_tokens=256, temperature=0.0, res
             max_tokens=max_tokens,
             response_format=response_format,
             seed=42,
-            temperature=temperature)
+            temperature=temperature,
+            tools=tools)
         
-    if n == 1: 
+    if tools is None:  
         return response.choices[0].message.content
     else:
-        return [x.message.content for x in response.choices]
+        return response.choices[0].message
 
 def compute_cost(messages, model='gpt-4o'):
     cost_dict = {'gpt-4o':(5/(10**6), 15/(10**6)),
@@ -180,41 +184,38 @@ def create_dbs():
     domains = ['restaurant', 'hotel', 'attraction', 'train', 'taxi', 'hospital']#, 'police']
     dbs = {}
     for domain in domains:
-        db = 'db/{}-dbase.db'.format(domain)
-        conn = sqlite3.connect(db)
-        c = conn.cursor()
-        dbs[domain] = c
+        db = 'db/{}_db.json'.format(domain)
+        with open(db, 'r') as file:
+            database = pd.DataFrame(json.load(file))
+        dbs[domain] = database
     return dbs
+
+def execute_query(dbs, domain, sql_query):
+    result = psql.sqldf(sql_query, env=dbs)
+    return result
 
 def filter_dbs(domain, failure_cases, dbs):
     sql_query = "delete from {}".format(domain)
 
     flag = True
+    tmp_df = dbs[domain].copy()
     for key, val in failure_cases.items():
         if val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care":
             pass
         else:
-            if flag:
-                sql_query += " where "
-                val2 = val.replace("'", "''")
-                # change query for trains
-                if key == 'leaveAt':
-                    sql_query += r" " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" " + key + "=" + r"'" + val2 + r"'"
-                flag = False
+            val2 = val.replace("'", "''")
+            # change query for trains
+            if key == 'leaveAt':
+                tmp_df = tmp_df[tmp_df[key]<=val2]
+                # sql_query += r" " + key + " > " + r"'" + val2 + r"'"
+            elif key == 'arriveBy':
+                tmp_df = tmp_df[tmp_df[key]>=val2]
+                # sql_query += r" " + key + " < " + r"'" + val2 + r"'"
             else:
-                val2 = val.replace("'", "''")
-                if key == 'leaveAt':
-                    sql_query += r" and " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" and " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" and " + key + "=" + r"'" + val2 + r"'"
-
-    return dbs[domain].execute(sql_query).fetchall()
+                tmp_df = tmp_df[tmp_df[key]==val2]
+                # sql_query += r" " + key + "=" + r"'" + val2 + r"'"
+    # rval = execute_query(dbs, domain, sql_query)
+    return tmp_df
 
 def test_if_val_is_empty(val):
     return val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care"
@@ -223,35 +224,25 @@ def queryDataBase(domain, turn, dbs):
     """Returns the list of entities for a given domain
     based on the annotation of the belief state"""
     # query the db
-    sql_query = "select * from {}".format(domain)
-
-    flag = True
+    tmp_df = dbs[domain].copy()
     for key, val in turn.items():
         if val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care" or not val or type(val)!= str:
             pass
         else:
-            if flag:
-                sql_query += " where "
-                val2 = val.replace("'", "''")
-                # change query for trains
-                if key == 'leaveAt':
-                    sql_query += r" " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" " + key + "=" + r"'" + val2 + r"'"
-                flag = False
+            val2 = val.replace("'", "''")
+            # change query for trains
+            if key == 'leaveAt':
+                tmp_df = tmp_df[tmp_df[key]>val2]
+                # sql_query += r" " + key + " > " + r"'" + val2 + r"'"
+            elif key == 'arriveBy':
+                tmp_df = tmp_df[tmp_df[key]<val2]
+                # sql_query += r" " + key + " < " + r"'" + val2 + r"'"
             else:
-                val2 = val.replace("'", "''")
-                if key == 'leaveAt':
-                    sql_query += r" and " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" and " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" and " + key + "=" + r"'" + val2 + r"'"
+                tmp_df = tmp_df[tmp_df[key]==val2]
+                # sql_query += r" " + key + "=" + r"'" + val2 + r"'"
 
-    db_results = dbs[domain].execute(sql_query).fetchall()
-    return_results = [dict(zip(valid_api_defs[domain][f'search_{domain}']['returns'], x)) for x in db_results]
+    # db_results = execute_query(dbs, domain, sql_query)
+    return_results = [x.to_dict() for _, x in tmp_df.iterrows()]
     return return_results
 
 def extract_and_parse_json(s):

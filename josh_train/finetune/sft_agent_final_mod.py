@@ -8,7 +8,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import yaml
 import numpy as np
 import os
-from multiwoz_api.utils import parse_api_call
+from josh_train.utils import parse_api_call
 from huggingface_hub import login
 login(token="HF_TOKEN")
 from peft import LoraConfig, get_peft_model

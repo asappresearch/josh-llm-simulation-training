@@ -13,16 +13,13 @@ def get_requires(requires_filename: str) -> List[str]:
 
 
 setup(
-    name="asapp-multiwoz-api",
-    description="asapp-multiwoz-api",
+    name="josh_train",
+    description="josh_train",
     author="blattimer",
     packages=PEP420PackageFinder.find(exclude=("test*",)),
     python_requires=">=3.8",
     install_requires=get_requires("requirements.txt"),
     include_package_data=True,
-    extras_require={
-        "test": get_requires("test/requirements.txt"),
-    },
     setup_requires=["setuptools_scm"],
     use_scm_version=True,
 )

@@ -2,7 +2,7 @@
 
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_random_exponential
-from multiwoz_api.utils import get_openai_creds
+from josh_train.utils import get_openai_creds
 
 class BaseUserSimulationEnv:
     metadata = {}
