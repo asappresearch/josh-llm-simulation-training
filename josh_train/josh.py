@@ -13,13 +13,36 @@ class BaseJOSHAgent:
         self.recent_actions = []
 
     def step(self, **kwargs):
-        return self, True
+        """
+        Returns
+        pass_to_customer: if the agent has ended their turn and chooses to pass to the customer
+        """
+        self.add_message({'role': 'assistant', 'content':'hello!'})
+        self.recent_actions = ['say hello']
+        pass_to_customer = True
+        return pass_to_customer
     
     def add_message(self, message):
         self.messages.append(message)
         self.messages_internal.append(message)
+
+class BaseJOSHUser:
+    def __init__(self):
+        pass
+
+    def step(self, agent:BaseJOSHAgent, **kwargs):
+        """
+        Returns 
+        agent: the agent passed in
+        conversation_over: whether or not the user has ended the conversation
+        """
+        agent.add_message({'role': 'user', 'content':'hi there!'})
+        conversation_over = False
+        return agent, conversation_over
     
 def trim_user_msg(messages):
+    if len(messages) == 0:
+        return []
     for idx, dic in enumerate(reversed(messages)):
         if dic.get('role')=='user':
             continue
@@ -197,7 +220,10 @@ class JOSH():
             self.root.is_successful = False
             leaves = [self.root]
         
-        self.current_reward = (self.num_total_rewards-len(self.rewards))/self.num_total_rewards
+        if self.num_total_rewards != 0:
+            self.current_reward = (self.num_total_rewards-len(self.rewards))/self.num_total_rewards
+        else:
+            self.current_reward = 0.0
         all_done = len(self.rewards) == 0
         return all_done
 
