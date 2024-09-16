@@ -18,8 +18,9 @@ class Conversation:
                 filter_dbs(domain, self.apis[domain]['failure'][f'search_{domain}']['parameters'], self.dbs)
 
     def close_convos(self):
-        for k in self.dbs.keys():
-            self.dbs[k].close()
+        keys = [k for k in self.dbs.keys()]
+        for k in keys:
+            del self.dbs[k]
 
     def add_api_call(self, api_name, api_args, returned):
         if 'search' == api_name.split('_')[0] and type(returned)==list:

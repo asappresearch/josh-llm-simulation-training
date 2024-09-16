@@ -58,6 +58,8 @@ def run(
     print(
         f"Running tasks {args.start_index} to {end_index} (checkpoint path: {ckpt_path})"
     )
+    model=None
+    tokenizer=None
     if 'llama' in  args.model.lower():
         model, tokenizer = build_llama_model(model_name = args.model, peft_dir=args.peft_dir)
     for i in range(args.num_trials):
@@ -204,7 +206,7 @@ def agent_factory(tools_info, wiki, args: argparse.Namespace, model=None, tokeni
     else:
         raise ValueError(f"Unknown agent strategy: {args.agent_strategy}")
 
-def display_metrics(results: dict[str, Any]) -> None:
+def display_metrics(results) -> None:
     num_trials = len(set([r["trial"] for r in results]))
     rewards = [r["reward"] for r in results]
     avg_reward = sum(rewards) / len(rewards)
@@ -246,6 +248,7 @@ def main():
             "gpt-3.5-turbo",
             "gpt-3.5-turbo-1106",
             "gpt-3.5-turbo-0125",
+            "gpt-4o-2024-08-06",
             "gpt-4o",
             # anthropic api models
             "claude-3-opus-20240229",

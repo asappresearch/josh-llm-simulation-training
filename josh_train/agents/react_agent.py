@@ -53,11 +53,14 @@ class ReACTAgentSimulator(BaseJOSHAgent):
         try:
             api_values = parse_api_call(command)
         except:
-            return 'FAILURE INCORRECTLY FORMATTED APICALL'
+            return 'FAILURE INCORRECTLY FORMATTED APICALL', None
         if api_values['api_name'] not in self.apis_to_examples:
-            return 'FAILURE INCORRECTLY FORMATTED APICALL'
+            return 'FAILURE INCORRECTLY FORMATTED APICALL', None
         returns = handle_api_calls(api_values['api_name'], api_values['api_args'], conversation_state=conversation_state)
-        called_api = {'name':api_values['api_name'], 'parameters': api_values['api_args'], 'returned': returns[0] if type(returns)==list else returns}
+        if type(returns)==list:
+            called_api = {'name':api_values['api_name'], 'parameters': api_values['api_args'], 'returned': returns[0] if len(returns)>0 else returns}
+        else:
+            called_api = {'name':api_values['api_name'], 'parameters': api_values['api_args'], 'returned': returns}
         return returns, called_api
     
     def step(self, **kwargs):

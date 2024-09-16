@@ -32,8 +32,6 @@ class ToolWOZEnvironment:
             with open('data/api_examples.json', 'r') as file:
                 self.api_examples = json.load(file)
 
-        for k in dbs.keys():
-            dbs[k].close()
 
         with open('data/valid_api_defs.json', 'r') as file:
             self.valid_api_defs = json.load(file)
@@ -160,7 +158,7 @@ def _run_conversation_normal(args, agent, user, convo_env, toolwoz_env):
         agent.step(model=toolwoz_env.model, tokenizer=toolwoz_env.tokenizer, env=convo_env)
     reward, failed_api = convo_env.evaluate_apis()
 
-    return reward, {'messages':agent.messages, 'failed_apis':failed_api, 'internal_messages':agent.messages_full}
+    return reward, {'messages':agent.messages, 'failed_apis':failed_api, 'internal_messages':agent.messages_internal}
 
 class ToolWOZRewards(BaseRewards):
     def __init__(self, env):
@@ -319,9 +317,9 @@ def driver(
 def final_metric(results):
     rewards = [r["reward"] for r in results]
     avg_reward = round(sum(rewards) / len(rewards), 4)
-    avg_reward = round(len([r for r in rewards if math.isclose(r, 1.0, rel_tol=1e-6)]) / len(rewards), 4)
+    success_rate = round(len([r for r in rewards if math.isclose(r, 1.0, rel_tol=1e-6)]) / len(rewards), 4)
     print(f"📊 Average Reward: {avg_reward}")
-    print(f"🏆 100% Success Rate: {avg_reward}")
+    print(f"🏆 100% Success Rate: {success_rate}")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -339,7 +337,7 @@ def main():
             "gpt-3.5-turbo-1106",
             "gpt-3.5-turbo-0125",
             "gpt-4o",
-            "gpt-4o-mini"
+            "gpt-4o-mini",
             "meta-llama/Meta-Llama-3-8B-Instruct",
         ],
     )

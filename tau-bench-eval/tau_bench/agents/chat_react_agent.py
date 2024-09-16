@@ -2,10 +2,12 @@
 
 import json
 import time
+from openai import OpenAI
 import torch
 
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
+from josh_train.utils import get_openai_creds
 from tau_bench.agents.base import BaseAgent
 from tau_bench.agents.utils import pretty_print_conversation
 
@@ -19,12 +21,19 @@ def request_llama(messages, tokenizer, model, temperature):
         generated_ids = model.generate(encoding, max_new_tokens=256, do_sample=False)#, temperature=0.7, top_k=50, top_p=0.95)
     return tokenizer.batch_decode(generated_ids[0][prompt_len:].unsqueeze(0), skip_special_tokens=True)[0].replace('assistant\n\n', '')
 
+def initialize_client(**kwargs):
+    creds = get_openai_creds()
+    api_key = creds['openai_key']
+    api_org = creds['openai_org']
+    client = OpenAI(api_key=api_key, organization=api_org)
+    return client
+
 def initialize_create(mode="openai", **kwargs):
     global create, create_mode
     if mode == "openai":
         from openai import OpenAI
 
-        create = OpenAI(**kwargs).chat.completions.create
+        create = initialize_client(**kwargs).chat.completions.create
         create_mode = "openai"
 
     elif mode == "llama":

@@ -8,6 +8,8 @@ import time
 import tiktoken
 import re
 from colorama import Back, Fore, Style
+import pandas as pd
+import pandasql as psql
 
 with open('data/valid_api_defs.json', 'r') as file:
     valid_api_defs = json.load(file)
@@ -182,41 +184,38 @@ def create_dbs():
     domains = ['restaurant', 'hotel', 'attraction', 'train', 'taxi', 'hospital']#, 'police']
     dbs = {}
     for domain in domains:
-        db = 'db/{}-dbase.db'.format(domain)
-        conn = sqlite3.connect(db, check_same_thread=False)
-        c = conn.cursor()
-        dbs[domain] = c
+        db = 'db/{}_db.json'.format(domain)
+        with open(db, 'r') as file:
+            database = pd.DataFrame(json.load(file))
+        dbs[domain] = database
     return dbs
+
+def execute_query(dbs, domain, sql_query):
+    result = psql.sqldf(sql_query, env=dbs)
+    return result
 
 def filter_dbs(domain, failure_cases, dbs):
     sql_query = "delete from {}".format(domain)
 
     flag = True
+    tmp_df = dbs[domain].copy()
     for key, val in failure_cases.items():
         if val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care":
             pass
         else:
-            if flag:
-                sql_query += " where "
-                val2 = val.replace("'", "''")
-                # change query for trains
-                if key == 'leaveAt':
-                    sql_query += r" " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" " + key + "=" + r"'" + val2 + r"'"
-                flag = False
+            val2 = val.replace("'", "''")
+            # change query for trains
+            if key == 'leaveAt':
+                tmp_df = tmp_df[tmp_df[key]<=val2]
+                # sql_query += r" " + key + " > " + r"'" + val2 + r"'"
+            elif key == 'arriveBy':
+                tmp_df = tmp_df[tmp_df[key]>=val2]
+                # sql_query += r" " + key + " < " + r"'" + val2 + r"'"
             else:
-                val2 = val.replace("'", "''")
-                if key == 'leaveAt':
-                    sql_query += r" and " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" and " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" and " + key + "=" + r"'" + val2 + r"'"
-
-    return dbs[domain].execute(sql_query).fetchall()
+                tmp_df = tmp_df[tmp_df[key]==val2]
+                # sql_query += r" " + key + "=" + r"'" + val2 + r"'"
+    # rval = execute_query(dbs, domain, sql_query)
+    return tmp_df
 
 def test_if_val_is_empty(val):
     return val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care"
@@ -225,35 +224,25 @@ def queryDataBase(domain, turn, dbs):
     """Returns the list of entities for a given domain
     based on the annotation of the belief state"""
     # query the db
-    sql_query = "select * from {}".format(domain)
-
-    flag = True
+    tmp_df = dbs[domain].copy()
     for key, val in turn.items():
         if val == "" or val == "dont care" or val == 'not mentioned' or val == "don't care" or val == "dontcare" or val == "do n't care" or not val or type(val)!= str:
             pass
         else:
-            if flag:
-                sql_query += " where "
-                val2 = val.replace("'", "''")
-                # change query for trains
-                if key == 'leaveAt':
-                    sql_query += r" " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" " + key + "=" + r"'" + val2 + r"'"
-                flag = False
+            val2 = val.replace("'", "''")
+            # change query for trains
+            if key == 'leaveAt':
+                tmp_df = tmp_df[tmp_df[key]>val2]
+                # sql_query += r" " + key + " > " + r"'" + val2 + r"'"
+            elif key == 'arriveBy':
+                tmp_df = tmp_df[tmp_df[key]<val2]
+                # sql_query += r" " + key + " < " + r"'" + val2 + r"'"
             else:
-                val2 = val.replace("'", "''")
-                if key == 'leaveAt':
-                    sql_query += r" and " + key + " > " + r"'" + val2 + r"'"
-                elif key == 'arriveBy':
-                    sql_query += r" and " + key + " < " + r"'" + val2 + r"'"
-                else:
-                    sql_query += r" and " + key + "=" + r"'" + val2 + r"'"
+                tmp_df = tmp_df[tmp_df[key]==val2]
+                # sql_query += r" " + key + "=" + r"'" + val2 + r"'"
 
-    db_results = dbs[domain].execute(sql_query).fetchall()
-    return_results = [dict(zip(valid_api_defs[domain][f'search_{domain}']['returns'], x)) for x in db_results]
+    # db_results = execute_query(dbs, domain, sql_query)
+    return_results = [x.to_dict() for _, x in tmp_df.iterrows()]
     return return_results
 
 def extract_and_parse_json(s):

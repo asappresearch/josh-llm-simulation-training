@@ -70,7 +70,10 @@ class FCAgentSimulator(BaseJOSHAgent):
             if self.debug:
                 print(json.dumps(api_call))
             api_returns = handle_api_calls(api_call['name'], api_call['arguments'], conversation_state=conversation_state)
-            self.recent_actions.append({'name':api_call['name'], 'parameters': api_call['arguments'], 'returned': api_returns[0] if type(api_returns)==list else api_returns})
+            if type(api_returns)==list:
+                self.recent_actions.append({'name':api_call['name'], 'parameters': api_call['arguments'], 'returned': api_returns[0] if len(api_returns)>0 else api_returns})
+            else:
+                self.recent_actions.append({'name':api_call['name'], 'parameters': api_call['arguments'], 'returned': api_returns})
             if self.debug:
                 print(json.dumps(api_returns))
             # Add the return
