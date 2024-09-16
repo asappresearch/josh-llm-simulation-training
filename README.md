@@ -28,7 +28,7 @@ You can run ToolWOZ normally by doing the following
 ```
 python josh_train/main.py
 ```
-
+Increase the ```--max_concurrency``` depending on your api rate limits
 ### JOSH on ToolWOZ
 Enable JOSH on ToolWOZ by adding the ```--josh``` flag, and make the running of JOSH print updates by also adding ```--josh_debug```
 
