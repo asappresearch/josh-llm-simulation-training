@@ -43,13 +43,13 @@ We have added a clone of [τ-bench](https://github.com/sierra-research/tau-bench
 
 To run τ-bench normally you can do
 ```
-python tau-bench-eval/run_updated.py
+python tau-bench-eval/run.py
 ```
 
 ### JOSH on τ-bench
 To run JOSH on τ-bench you can do
 ```
-python tau-bench-eval/run_updated_josh.py
+python tau-bench-eval/run.py --josh --debug
 ```
 
 ## Using JOSH
