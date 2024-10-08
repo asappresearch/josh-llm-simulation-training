@@ -1,54 +1,41 @@
 # Copyright Sierra
 
-from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_random_exponential
-from josh_train.utils import get_openai_creds
+import abc
+from litellm import completion
 
-class BaseUserSimulationEnv:
+from typing import Optional, List, Dict, Any
+
+
+class BaseUserSimulationEnv(abc.ABC):
     metadata = {}
 
-    def reset(self, instruction=None) -> str:
-        return ""
+    @abc.abstractmethod
+    def reset(self, instruction: Optional[str] = None) -> str:
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def step(self, content: str) -> str:
-        return ""
+        raise NotImplementedError
 
-    def get_total_cost(self):
-        return 0
+    @abc.abstractmethod
+    def get_total_cost(self) -> float:
+        raise NotImplementedError
 
 
 class HumanUserSimulationEnv(BaseUserSimulationEnv):
-    def reset(self, instruction=None) -> str:
+    def reset(self, instruction: str) -> str:
         return input(f"{instruction}\n")
 
     def step(self, content: str) -> str:
         return input(f"{content}\n")
 
-creds = get_openai_creds()
-api_key = creds['openai_key']
-api_org = creds['openai_org']
-client = OpenAI(api_key=api_key, organization=api_org)
-
-prompt_price_per_million = {"gpt-4o": 5, "gpt-4-turbo": 10, "gpt-4": 30, "gpt-4-32k-0613": 60, "gpt-3.5-turbo": 0.5}
-completion_price_per_million = {"gpt-4o": 15, "gpt-4-turbo": 30, "gpt-4": 60, "gpt-4-32k-0613": 120, "gpt-3.5-turbo": 1.5}
+    def get_total_cost(self) -> float:
+        return 0
 
 
-@retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(10))
-def chat_completion_request(messages, model="gpt-4", **kwargs):
-    response = client.chat.completions.create(
-        messages=messages,
-        model=model,
-        **kwargs,
-    )
-    content = response.choices[0].message.content
-    cost = prompt_price_per_million[model] * response.usage.prompt_tokens / 1e6 + completion_price_per_million[model] * response.usage.completion_tokens / 1e6
-    return content, cost
-
-
-SYSTEM_PROMPT = """You are an user interacting with an agent.
-
-Instruction: {instruction}
-
+def build_system_prompt(instruction: Optional[str]) -> str:
+    inst = ("\n\nInstruction: " + instruction + "\n") if instruction is not None else ""
+    return f"""You are an user interacting with an agent.{inst}
 Rules:
 - Just generate one line at a time to simulate the user's message.
 - Do not give away all the instruction at once. Only provide the information that is necessary for the current step.
@@ -59,41 +46,55 @@ Rules:
 """
 
 
-
-class NaiveUserSimulationEnv(BaseUserSimulationEnv):
-    def __init__(self, model="gpt-4"):
+class LLMUserSimulationEnv(BaseUserSimulationEnv):
+    def __init__(self, model: str, provider: str) -> None:
         super().__init__()
-        self.messages = None
-        self.system_prompt = SYSTEM_PROMPT
+        self.messages: List[Dict[str, Any]] = []
         self.model = model
-        self.total_cost = 0
+        self.provider = provider
+        self.total_cost = 0.0
+        self.reset()
 
-    def reset(self, instruction=None) -> str:
-        self.total_cost = 0
+    def reset(self, instruction: Optional[str] = None) -> str:
         self.messages = [
-            {"role": "system", "content": self.system_prompt.format(instruction=instruction)},
+            {
+                "role": "system",
+                "content": build_system_prompt(instruction=instruction),
+            },
             {"role": "user", "content": "Hi! How can I help you today?"},
         ]
-        content, cost = chat_completion_request(self.messages, self.model, temperature=1.0, max_tokens=150)
-        self.messages.append({"role": "assistant", "content": content})
-        self.total_cost += cost
-        return content
+        res = completion(
+            model=self.model, custom_llm_provider=self.provider, messages=self.messages, temperature=0.0
+        )
+        message = res.choices[0].message
+        self.messages.append(message.model_dump())
+        self.total_cost = res._hidden_params["response_cost"]
+        return message.content
 
     def step(self, content: str) -> str:
         self.messages.append({"role": "user", "content": content})
-        content, cost = chat_completion_request(self.messages, self.model, temperature=1.0, max_tokens=150)
-        self.messages.append({"role": "assistant", "content": content})
-        self.total_cost += cost
-        return content
+        res = completion(
+            model=self.model, custom_llm_provider=self.provider, messages=self.messages, temperature=0.0
+        )
+        message = res.choices[0].message
+        self.messages.append(message.model_dump())
+        self.total_cost += res._hidden_params["response_cost"]
+        return message.content
 
-    def get_total_cost(self):
+    def get_total_cost(self) -> float:
         return self.total_cost
 
 
-def load_user(user_mode: str, model: str="gpt-4") -> BaseUserSimulationEnv:
-    if user_mode == "human":
+def load_user(
+    user_strategy: str, model: Optional[str] = "gpt-4o", provider: Optional[str] = None
+) -> BaseUserSimulationEnv:
+    if user_strategy == "human":
         return HumanUserSimulationEnv()
-    elif user_mode == "naive":
-        return NaiveUserSimulationEnv(model=model)
+    elif user_strategy == "llm":
+        if model is None:
+            raise ValueError("LLM user strategy requires a model")
+        if provider is None:
+            raise ValueError("LLM user strategy requires a model provider")
+        return LLMUserSimulationEnv(model=model, provider=provider)
     else:
-        raise ValueError(f"Unknown user mode {user_mode}")
+        raise ValueError(f"Unknown user strategy {user_strategy}")

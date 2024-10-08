@@ -1,7 +1,7 @@
 # put requriemetns here
 python-dotenv
 colorama
-openai~=1.14.3
+openai
 pyyaml
 datasets
 accelerate

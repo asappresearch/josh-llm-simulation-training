@@ -170,7 +170,8 @@ class ToolWOZRewards(BaseRewards):
         super().__init__(self.rewards)
 
     def is_reward(self, agent_actions):
-        correct_calls, _, _, apis_to_delete = self.env.evaluate_apis(agent_actions)
+        filtered_actions = [a for a in agent_actions if a]
+        correct_calls, _, _, apis_to_delete = self.env.evaluate_apis(filtered_actions)
         got_reward = correct_calls>0
 
         return got_reward, apis_to_delete
@@ -252,8 +253,11 @@ def driver(
     print(
         f"🏃🏃🏃 Simulating {args.task_split} convos from {args.start_index} to {end_index} (checkpoint path: {ckpt_path})"
     )
+    total_idx = list(range(len(toolwoz_env.set_to_run)))
+    if args.shuffle:
+        random.shuffle(total_idx)
 
-    idxs = list(range(args.start_index, end_index))
+    idxs = total_idx[args.start_index: end_index]
 
     def _run(idx: int) -> dict:
         convo_env = build_convo_env(args, toolwoz_env.set_to_run[idx], toolwoz_env)
@@ -327,19 +331,6 @@ def main():
         "--model",
         type=str,
         default="gpt-4o",
-        choices=[
-            # openai api models
-            "gpt-4-turbo",
-            "gpt-4-0125-preview",
-            "gpt-4-1106-preview",
-            "gpt-4-32k-0613",
-            "gpt-3.5-turbo",
-            "gpt-3.5-turbo-1106",
-            "gpt-3.5-turbo-0125",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "meta-llama/Meta-Llama-3-8B-Instruct",
-        ],
     )
     parser.add_argument(
         "--peft_dir",
@@ -373,6 +364,7 @@ def main():
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--josh_debug", action="store_true", default=False)
     parser.add_argument("--josh", action="store_true", default=False)
+    parser.add_argument("--shuffle", action="store_true", default=False)
     parser.add_argument("--log_dir", type=str, default="records")
     parser.add_argument(
         "--max_concurrency",
@@ -382,7 +374,7 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=10)
     parser.add_argument("--beam_size", type=int, default=8)
-    parser.add_argument("--josh_agent_tries", type=int, default=10)
+    parser.add_argument("--josh_agent_tries", type=int, default=20)
 
     args = parser.parse_args()
     print(args)

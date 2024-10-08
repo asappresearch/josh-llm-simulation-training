@@ -174,7 +174,11 @@ class JOSH():
 
             turn_finished = []
             for lf in unfinished_leaves:
-                lf.agent, pass_to_customer = self.agent_step(agent=lf.agent, model=self.agent_model, tokenizer=self.agent_tokenizer, env = self.agent_env)
+                try:
+                    lf.agent, pass_to_customer = self.agent_step(agent=lf.agent, model=self.agent_model, tokenizer=self.agent_tokenizer, env = self.agent_env)
+                except:
+                    pass_to_customer=None
+                    
                 if pass_to_customer is None:
                     turn_finished.append(True)
                     lf.conversation_over = True

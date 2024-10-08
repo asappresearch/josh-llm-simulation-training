@@ -2,21 +2,21 @@ import os
 import json
 import numpy as np
 import sys
-from deepsig import bootstrap_test
+from deepsig import bootstrap_test, aso
 
 def get_aggregates(input_dir):
     data = []
 
 
-    for file in os.listdir('./'+input_dir+"/"):
-        with open('./'+input_dir+"/"+file, 'r') as f:
-            data.append(json.load(f))
+    # for file in os.listdir('./'+input_dir+"/"):
+    with open('./'+input_dir, 'r') as f:
+        data = json.load(f)
 
     num_of_100 = 0
     scores = []
     for d in data:
-        scores.append(d['result'])
-        if d['result'] == 1.0:
+        scores.append(d['reward'])
+        if d['reward'] == 1.0:
             num_of_100+=1
 
     return data, scores, num_of_100
