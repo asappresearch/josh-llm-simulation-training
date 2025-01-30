@@ -14,7 +14,7 @@ from josh_train.josh import BaseJOSHAgent
 
 
 class ReACTAgentSimulator(BaseJOSHAgent):
-    def __init__(self, api_examples, api_defs, model_name:Optional[str]=None, temperature=0.0, debug = False):
+    def __init__(self, api_examples, api_defs, model_name:Optional[str]=None, temperature=0.0, debug = False, tokenizer=None):
         super().__init__()
         cwd = os.getcwd()
         with open(f'{cwd}/prompts/prompts.yaml', 'r') as file:
@@ -25,10 +25,15 @@ class ReACTAgentSimulator(BaseJOSHAgent):
         with open(f'{cwd}/data/tools.json', 'r') as file:
             tools_list = json.load(file)
         self.MONO_PROMPT = prompts['react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
+        self.SHORT_PROMPT = prompts['dense_react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.pattern = "(PLAN|APICALL|SPEAK)(.*?)(?=PLAN|APICALL|SPEAK|$)"
         self.model_name=model_name
         self.debug = debug
         self.temperature = temperature
+        if tokenizer:
+            self.system_enc = tokenizer(
+                self.MONO_PROMPT, return_tensors="pt", add_special_tokens=False
+            ).input_ids.to('cuda')
 
     def parse_agent_message(self, output):
         commands  = re.findall(self.pattern , output , re.DOTALL)
@@ -37,14 +42,18 @@ class ReACTAgentSimulator(BaseJOSHAgent):
     
     def request(self, messages, model=None, tokenizer=None) -> str:
         if model and tokenizer:
-            encoding = tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')
-            prompt_len=len(encoding[0])
+            dynamic_enc = tokenizer.apply_chat_template(messages[1:], return_tensors="pt").to('cuda')
+            encoding = torch.cat([self.system_enc, dynamic_enc], dim=-1)
+            prompt_len = encoding.shape[-1]
             with torch.no_grad():
                 if math.isclose(self.temperature, 0.0, rel_tol=1e-6):
-                    generated_ids = model.generate(encoding, max_new_tokens=256, do_sample=False)
+                    generated_ids = model.generate(encoding, max_new_tokens=256, do_sample=False, pad_token_id=tokenizer.eos_token_id)
                 else:
-                    generated_ids = model.generate(encoding, max_new_tokens=256, temperature=self.temperature, top_k=50, top_p=0.95)
-            return tokenizer.batch_decode(generated_ids[0][prompt_len:].unsqueeze(0), skip_special_tokens=True)[0]
+                    generated_ids = model.generate(encoding, max_new_tokens=256, temperature=self.temperature, top_k=50, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
+                
+                return_ids = generated_ids[:, prompt_len:]
+                output_text = tokenizer.decode(return_ids[0], skip_special_tokens=True)
+            return output_text
         else:
             output = request_openai(messages, self.model_name, config.client, temperature=self.temperature)
             return output

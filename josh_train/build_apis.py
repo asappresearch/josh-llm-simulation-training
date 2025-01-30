@@ -1,6 +1,6 @@
 import json
 # Load in MultiWOZ 2.2 data
-with open('data/multi-woz/data.json') as fin1:
+with open('/root/josh-llm-simulation-training/data/multi-woz/data.json') as fin1:
     data = json.load(fin1)
 
 # Build the api arguments from real MultiWOZ examples

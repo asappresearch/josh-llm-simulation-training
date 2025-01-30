@@ -11,7 +11,7 @@ from colorama import Back, Fore, Style
 import pandas as pd
 import pandasql as psql
 
-with open('data/valid_api_defs.json', 'r') as file:
+with open('/root/josh-llm-simulation-training/data/valid_api_defs.json', 'r') as file:
     valid_api_defs = json.load(file)
 
 valid_apis = {}
@@ -184,7 +184,7 @@ def create_dbs():
     domains = ['restaurant', 'hotel', 'attraction', 'train', 'taxi', 'hospital']#, 'police']
     dbs = {}
     for domain in domains:
-        db = 'db/{}_db.json'.format(domain)
+        db = '/root/josh-llm-simulation-training/db/{}_db.json'.format(domain)
         with open(db, 'r') as file:
             database = pd.DataFrame(json.load(file))
         dbs[domain] = database
@@ -328,6 +328,8 @@ def _handle_api_calls(api_name, api_args, conversation_state):
     """
     Executes a given api call on the data
     """
+    if type(api_args) is not dict:
+        return 'ERROR: INVALID API CALL! PARAMETERS MUST BE A DICTIONARY!'
     if not validate_api_call(api_name, api_args):
         return 'ERROR: INVALID API CALL! YOUR REQUEST CONTAINED PARAMETERS THAT ARE NOT ALLOWED FOR THIS API or AN IMPROPER API NAME!'
     for  k,v in api_args.items():
@@ -392,13 +394,13 @@ def make_transcript(messages, role_map=None):
     return transcript
 
 def create_apis(dbs):
-    with open('data/data.json') as fin1:
+    with open('/root/josh-llm-simulation-training/data/data.json') as fin1:
         data = json.load(fin1)
 
-    with open('data/valid_api_defs.json', 'r') as file:
+    with open('/root/josh-llm-simulation-training/data/valid_api_defs.json', 'r') as file:
         apis = json.load(file)
 
-    with open('data/delex.json') as outfile:
+    with open('/root/josh-llm-simulation-training/data/delex.json') as outfile:
         delex = json.load(outfile)
 
     searchable_domains = ['hotel', 'attraction', 'train', 'restaurant']

@@ -7,6 +7,9 @@ from datetime import datetime
 import os
 import math
 import random
+
+import numpy as np
+import wandb
 from josh_train.josh import BaseJOSHAgent, JOSH, BaseRewards
 from josh_train.utils import *
 from openai import OpenAI
@@ -16,38 +19,38 @@ class ToolWOZEnvironment:
     def __init__(self, args):
         # Build the environment
         dbs = create_dbs()
-        if not os.path.isfile('data/ground_truth_apis.json'):
+        if not os.path.isfile('/root/josh-llm-simulation-training/data/ground_truth_apis.json'):
             self.apis = create_apis(dbs)
-            with open('data/ground_truth_apis.json', 'w') as file:
+            with open('/root/josh-llm-simulation-training/data/ground_truth_apis.json', 'w') as file:
                 json.dump(self.apis, file, indent=2)
         else:
-            with open('data/ground_truth_apis.json', 'r') as file:
+            with open('/root/josh-llm-simulation-training/data/ground_truth_apis.json', 'r') as file:
                 self.apis = json.load(file)
 
-        if not os.path.isfile('data/api_examples.json'):
+        if not os.path.isfile('/root/josh-llm-simulation-training/data/api_examples.json'):
             self.api_examples = create_api_examples(self.apis)
-            with open('data/api_examples.json', 'w') as file:
+            with open('/root/josh-llm-simulation-training/data/api_examples.json', 'w') as file:
                 json.dump(self.api_examples, file, indent=2)
         else:
-            with open('data/api_examples.json', 'r') as file:
+            with open('/root/josh-llm-simulation-training/data/api_examples.json', 'r') as file:
                 self.api_examples = json.load(file)
 
 
-        with open('data/valid_api_defs.json', 'r') as file:
+        with open('/root/josh-llm-simulation-training/data/valid_api_defs.json', 'r') as file:
             self.valid_api_defs = json.load(file)
 
-        with open('data/delex.json') as outfile:
+        with open('/root/josh-llm-simulation-training/data/delex.json') as outfile:
             self.delex = json.load(outfile)
 
-        with open('data/data.json') as outfile:
+        with open('/root/josh-llm-simulation-training/data/data.json') as outfile:
             self.real_convos = json.load(outfile)
 
-        with open('data/testListFile.json', 'r') as file:
+        with open('/root/josh-llm-simulation-training/data/testListFile.json', 'r') as file:
             test_ids_tmp = file.readlines()
         test_ids_tmp = [x.strip() for x in test_ids_tmp]
         self.test_ids_full = sorted(list(set(test_ids_tmp).intersection(self.apis.keys())))
         self.test_ids = sorted(list(set(test_ids_tmp).intersection(self.apis.keys())))[:450]
-        with open('data/valListFile.json', 'r') as file:
+        with open('/root/josh-llm-simulation-training/data/valListFile.json', 'r') as file:
             val_ids_tmp = file.readlines()
         val_ids_tmp = [x.strip() for x in val_ids_tmp]
         self.val_ids = sorted(list(set(val_ids_tmp).intersection(self.apis.keys())))
@@ -72,12 +75,15 @@ class ToolWOZEnvironment:
         from huggingface_hub import login
         from transformers import AutoTokenizer, AutoModelForCausalLM
         import torch
+        from peft import PeftConfig, PeftModel, LoraConfig
         hf_creds = get_hf_creds()
         login(token=hf_creds["hf_token"])
 
-        model_name = args.model_name
+        model_name = args.model
+        # First, let's inspect what we have
+        print("Loading base model...")
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, 
+            model_name,
             device_map="auto", 
             torch_dtype=torch.bfloat16, 
             load_in_4bit=True, 
@@ -85,16 +91,23 @@ class ToolWOZEnvironment:
             bnb_4bit_use_double_quant=True, 
             bnb_4bit_quant_type="nf4", 
             attn_implementation="flash_attention_2",
+            use_cache=True
         )
-        tokenizer = AutoTokenizer.from_pretrained(model_name)#, padding_side="left")
-
-        if args.peft_dir:
-            from peft import PeftModel
-            model = PeftModel.from_pretrained(model, args.peft_dir)
-            #Don't do merge and unload, it ruins things!!
-            #model = model.merge_and_unload()
+        if args.peft_dir is not None:
+            print(f"Loading PEFT from {args.peft_dir}")
+            # This should load both the config and weights from adapter_model.safetensors
+            model = PeftModel.from_pretrained(
+                model,
+                args.peft_dir,
+                is_trainable=False
+            )
+            model.load_adapter(args.peft_dir, 'trained')
+            model.set_adapter('trained')
+            print("PEFT model loaded")
+            model = model.merge_and_unload()
 
         model.eval()
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         return model, tokenizer
 
@@ -136,6 +149,7 @@ def build_agent(args, toolwoz_env):
                         model_name=args.model,
                         debug=args.debug,
                         temperature= args.temperature,
+                        tokenizer=toolwoz_env.tokenizer
                         )
     elif args.agent_strategy == 'function_calling':
         from josh_train.agents.fc_agent import FCAgentSimulator
@@ -309,6 +323,9 @@ def driver(
                     data = json.load(f)
             with open(ckpt_path, "w") as f:
                 json.dump(data + [result], f, indent=2)
+            wandb.log({"ppo/reward": reward})
+            rewards = [x['reward'] for x in data+[result]]
+            wandb.log({"result/avg_reward": np.mean(rewards)})
         return result
 
     with ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:
@@ -326,6 +343,7 @@ def final_metric(results):
     print(f"🏆 100% Success Rate: {success_rate}")
 
 def main():
+    wandb.init(project="toolwoz-test")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model",
@@ -396,7 +414,7 @@ def main():
 
     final_metric(results)
 
-
+    wandb.finish()
     with open(file_str, "w") as f:
         json.dump(results, f, indent=2)
         print(f"\n📄 Results saved to {file_str}\n")
