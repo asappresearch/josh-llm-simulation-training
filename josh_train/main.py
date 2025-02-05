@@ -82,18 +82,19 @@ class ToolWOZEnvironment:
         model_name = args.model
         # First, let's inspect what we have
         print("Loading base model...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            device_map="auto", 
-            torch_dtype=torch.bfloat16, 
-            load_in_4bit=True, 
-            bnb_4bit_compute_dtype=torch.bfloat16, 
-            bnb_4bit_use_double_quant=True, 
-            bnb_4bit_quant_type="nf4", 
-            attn_implementation="flash_attention_2",
-            use_cache=True
-        )
+        
         if args.peft_dir is not None:
+            model = AutoModelForCausalLM.from_pretrained(
+                args.peft_dir,#"meta-llama/Meta-Llama-3-8B-Instruct",#args.peft_dir,
+                device_map="auto", 
+                torch_dtype=torch.bfloat16, 
+                load_in_4bit=True, 
+                bnb_4bit_compute_dtype=torch.bfloat16, 
+                bnb_4bit_use_double_quant=True, 
+                bnb_4bit_quant_type="nf4", 
+                attn_implementation="flash_attention_2",
+                use_cache=True
+            )
             print(f"Loading PEFT from {args.peft_dir}")
             # This should load both the config and weights from adapter_model.safetensors
             model = PeftModel.from_pretrained(
@@ -101,10 +102,22 @@ class ToolWOZEnvironment:
                 args.peft_dir,
                 is_trainable=False
             )
-            model.load_adapter(args.peft_dir, 'trained')
-            model.set_adapter('trained')
+            # model.load_adapter(args.peft_dir, 'trained')
+            # model.set_adapter('trained')
             print("PEFT model loaded")
-            model = model.merge_and_unload()
+            # model = model.merge_and_unload()
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                "meta-llama/Meta-Llama-3-8B-Instruct",
+                device_map="auto", 
+                torch_dtype=torch.bfloat16, 
+                load_in_4bit=True, 
+                bnb_4bit_compute_dtype=torch.bfloat16, 
+                bnb_4bit_use_double_quant=True, 
+                bnb_4bit_quant_type="nf4", 
+                attn_implementation="flash_attention_2",
+                use_cache=True
+            )
 
         model.eval()
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -323,9 +336,11 @@ def driver(
                     data = json.load(f)
             with open(ckpt_path, "w") as f:
                 json.dump(data + [result], f, indent=2)
-            wandb.log({"ppo/reward": reward})
             rewards = [x['reward'] for x in data+[result]]
-            wandb.log({"result/avg_reward": np.mean(rewards)})
+            wandb.log({"result/raw_reward": reward,
+                       "result/avg_reward": np.mean(rewards),
+                       "result/100_success_rate": np.mean([float(int(x==1.0)) for x in rewards])
+                       }, step=len(rewards))
         return result
 
     with ThreadPoolExecutor(max_workers=args.max_concurrency) as executor:

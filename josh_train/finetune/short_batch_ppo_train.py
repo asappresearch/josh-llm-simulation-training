@@ -52,20 +52,15 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
         self.apis_to_examples = {x['name']: x for x in api_examples}
         with open(f'{cwd}/data/tools.json', 'r') as file:
             tools_list = json.load(file)
-        self.MONO_PROMPT = prompts['dense_react_prompt']#.replace('{example_filled}', json.dumps(tools_list, indent=2))
+        self.MONO_PROMPT = prompts['maybe_fine_prompt']#.replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.pattern = "(PLAN|APICALL|SPEAK)(.*?)(?=PLAN|APICALL|SPEAK|$)"
         self.model_name=model_name
         self.debug = debug
         self.temperature = temperature
-        self.SHORT_PROMPT = prompts['dense_react_prompt']#.replace('{example_filled}', json.dumps(tools_list, indent=2))
-        # print(self.SHORT_PROMPT)
+        self.SHORT_PROMPT = prompts['maybe_fine_prompt']#.replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.system_short_enc = tokenizer(
             self.SHORT_PROMPT, return_tensors="pt", add_special_tokens=False
         ).input_ids.to('cuda')
-
-        # self.system_mono_enc = tokenizer(
-        #     self.MONO_PROMPT, return_tensors="pt", add_special_tokens=False
-        # ).input_ids.to('cuda')
 
     def parse_agent_message(self, output):
         commands  = re.findall(self.pattern , output , re.DOTALL)
@@ -85,32 +80,24 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
                 if msgs_idx > 1:
                     print(f'truncate {msgs_idx-1} message')
                 dynamic_messages = tokenizer.apply_chat_template(messages[msgs_idx:], return_tensors="pt")
-                if dynamic_messages.shape[-1]+self.system_short_enc.shape[-1]<2500:
+                if dynamic_messages.shape[-1]+self.system_short_enc.shape[-1]<1175:
                     break
             dynamic_enc = dynamic_messages.to('cuda')
-            output_short_encoding = torch.cat([self.system_short_enc, dynamic_enc], dim=-1).squeeze()
+            # output_short_encoding = torch.cat([self.system_short_enc, dynamic_enc], dim=-1).squeeze()
             encoding = torch.cat([self.system_short_enc, dynamic_enc], dim=-1).squeeze()
             print(encoding.shape)
-            # encoding = tokenizer.apply_chat_template(messages, return_tensors="pt").to('cuda')#.squeeze()
-            # print(f'enc: {encoding}')
+
             prompt_len = encoding.shape[-1]
-            # print(f'generate: enc shape {encoding.shape}')
-            # print(model)
-            # with torch.profiler.profile(
-            #     activities=[torch.profiler.ProfilerActivity.CUDA]
-            # ) as prof:
+
             with torch.inference_mode():
-                generated_ids = model.generate(encoding, max_new_tokens=256, temperature=0.7, top_k=50, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
-            # print(prof.key_averages().table())
-            # print('generated')
+                generated_ids = model.generate(encoding, max_new_tokens=200, temperature=0.7, top_k=50, top_p=0.95, pad_token_id=tokenizer.eos_token_id)
+
             return_ids = generated_ids[:, prompt_len:]
             output_text = tokenizer.decode(return_ids[0], skip_special_tokens=True)
             
-            # msg_out = tokenized.to('cuda')
-            # msg_out = tokenizer.apply_chat_template([{'role':'system', 'content':self.SHORT_PROMPT}]+messages[1:], return_tensors="pt", max_length=2900, truncation=True).to('cuda')
         t1 = time.time()
         print(f'inf time: {t1-t0:.3f} seconds')
-        return output_text, output_short_encoding, return_ids
+        return output_text, encoding, return_ids
     
     def handle_api(self, command, conversation_state):
         try:
@@ -176,56 +163,6 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
         self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
         return training_outputs, output_mask
 
-
-# class RewardModelWrapper(torch.nn.Module):
-#     """Wrapper to make environment rewards compatible with PPOTrainer"""
-#     def __init__(self, env, args):
-#         super().__init__()
-#         self.env = env
-#         self.args = args
-#         self.current_conv_env = None
-#         self.current_agent = None
-#         self.current_user = None
-        
-#     def forward(self, generations, prompts):
-#         """Forward pass for the reward model"""
-#         return self.__call__(generations, prompts)
-
-#     def setup_conversation(self, conversation_id):
-#         """Setup a new conversation environment"""
-#         if self.current_conv_env is not None:
-#             self.current_conv_env.close_convos()
-        
-#         self.current_conv_env = build_convo_env(self.args, conversation_id, self.env)
-#         self.current_user = build_user(self.args, self.env, self.current_conv_env)
-#         self.current_agent = build_agent(self.args, self.env)
-        
-#         # Initial user turn
-#         self.current_agent, _ = self.current_user.step(self.current_agent)
-        
-#     def __call__(self, generations, prompts):
-#         """Interface expected by PPOTrainer"""
-#         rewards = []
-        
-#         for generation, _ in zip(generations, prompts):
-#             # Update agent's message history
-#             self.current_agent.messages.append({
-#                 "role": "assistant", 
-#                 "content": generation
-#             })
-            
-#             # Get reward from environment
-#             reward, _ = self.current_conv_env.evaluate_apis()
-#             rewards.append(reward)
-            
-#             # Get next user turn
-#             self.current_agent, conversation_over = self.current_user.step(self.current_agent)
-            
-#             if conversation_over:
-#                 rewards[-1] += 1.0  # Bonus for completing conversation successfully
-                
-#         return rewards
-
 class ConversationDataset(Dataset):
     def __init__(self, conversations: List[ConversationTurn]):
         self.conversations = conversations
@@ -237,54 +174,6 @@ class ConversationDataset(Dataset):
         return self.conversations[idx]
 
 
-# def _save(self, output_dir: Optional[str] = None, state_dict=None):
-#         # If we are executing this function, we are the process zero, so we don't check for that.
-#         output_dir = output_dir if output_dir is not None else self.args.output_dir
-#         os.makedirs(output_dir, exist_ok=True)
-#         logger.info(f"Saving model checkpoint to {output_dir}")
-
-#         supported_classes = (PreTrainedModel,) if not is_peft_available() else (PreTrainedModel, PeftModel)
-#         # Save a trained model and configuration using `save_pretrained()`.
-#         # They can then be reloaded using `from_pretrained()`
-#         if not isinstance(self.model, supported_classes):
-#             if state_dict is None:
-#                 state_dict = self.model.state_dict()
-
-#             if isinstance(self.accelerator.unwrap_model(self.model), supported_classes):
-#                 self.accelerator.unwrap_model(self.model).save_pretrained(
-#                     output_dir, state_dict=state_dict, safe_serialization=self.args.save_safetensors
-#                 )
-#             else:
-#                 logger.info("Trainer.model is not a `PreTrainedModel`, only saving its state dict.")
-#                 if self.args.save_safetensors:
-#                     safetensors.torch.save_file(
-#                         state_dict, os.path.join(output_dir, SAFE_WEIGHTS_NAME), metadata={"format": "pt"}
-#                     )
-#                 else:
-#                     torch.save(state_dict, os.path.join(output_dir, WEIGHTS_NAME))
-#         else:
-#             self.model.save_pretrained(
-#                 output_dir, state_dict=state_dict, safe_serialization=self.args.save_safetensors
-#             )
-
-#         if self.processing_class is not None:
-#             self.processing_class.save_pretrained(output_dir)
-
-#         # Good practice: save your training arguments together with the trained model
-#         torch.save(self.args, os.path.join(output_dir, TRAINING_ARGS_NAME))
-# class ValueHeadModel(torch.nn.Module):
-#     def __init__(self, base_model):
-#         super().__init__()
-#         self.base_model = base_model
-#         self.v_head = torch.nn.Linear(base_model.config.hidden_size, 1, bias=False)
-#         self.v_head = self.v_head.to(torch.bfloat16)  # Force precision
-
-#     def forward(self, **kwargs):
-#         outputs = self.base_model(**kwargs, output_hidden_states=True)
-#         last_hidden = outputs.hidden_states[-1][:, -1, :]  # [batch, 1]
-#         values = self.v_head(last_hidden.to(torch.bfloat16))
-#         return outputs.logits, values
-
 class PPOToolWOZTrainer:
     def __init__(self, args):
         self.args = args
@@ -294,18 +183,35 @@ class PPOToolWOZTrainer:
         self.initialize_trainer()
         self.smooth_gamma = 0.95  # Decay factor for reward propagation
 
+    # def _smooth_rewards(self, rewards: List[float], out_mask: List[bool]) -> List[float]:
+    #     """Apply exponential decay to propagate rewards backward"""
+    #     smoothed = torch.zeros(len(rewards))
+    #     carryover = 0.0
+    #     for i in reversed(range(len(rewards))):
+    #             carryover = carryover * self.smooth_gamma + rewards[i]
+    #             # only allow carryover if there wasn't a failed api call
+    #             if out_mask[i]:
+    #                 smoothed[i] = carryover
+    #     if len(rewards) > 0 and smoothed.max() > 0:
+    #             smoothed = torch.tensor([min(1.0, x) for x in smoothed])
+    #     return smoothed.tolist()
+
     def _smooth_rewards(self, rewards: List[float], out_mask: List[bool]) -> List[float]:
-        """Apply exponential decay to propagate rewards backward"""
         smoothed = torch.zeros(len(rewards))
         carryover = 0.0
         for i in reversed(range(len(rewards))):
-                carryover = carryover * self.smooth_gamma + rewards[i]
-                # only allow carryover if there wasn't a failed api call
-                if out_mask[i]:
-                    smoothed[i] = carryover
-        if len(rewards) > 0 and smoothed.max() > 0:
-                smoothed = torch.tensor([min(1.0, x) for x in smoothed])
-        return smoothed.tolist()
+            carryover = carryover * self.smooth_gamma + rewards[i]
+            # Modified: Allow partial carryover even on failures
+            if out_mask[i]:
+                smoothed[i] = carryover
+            else:
+                smoothed[i] = carryover * 0.3  # Penalize less harshly
+        # Remove min(1.0) cap to allow meaningful scaling
+        if len(rewards) > 0:
+            smoothed /= smoothed.max() + 1e-6  # Normalize instead
+        smoothed_list = smoothed.tolist()
+        smoothed_scaled = [r * 0.1 for r in smoothed_list]
+        return smoothed_scaled
         
     def setup_models(self):
         # Setup quantization config
@@ -318,20 +224,6 @@ class PPOToolWOZTrainer:
         
         # Load base model with value head
         model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
-        print('load model')
-        # base_model = AutoModelForCausalLM.from_pretrained(
-        #     "meta-llama/Meta-Llama-3-8B-Instruct",
-        #     quantization_config=self.bnb_config,
-        #     device_map="cuda",
-        #     # trust_remote_code=True,
-        #     attn_implementation="flash_attention_2",
-        #     torch_dtype=torch.bfloat16, 
-        #     use_cache=False,
-        # )
-        print('grad')
-        # base_model.gradient_checkpointing_enable()
-        # base_model = prepare_model_for_kbit_training(base_model)
-        # base_model.requires_grad_(False)
         # 3. Apply LoRA
         lora_config = LoraConfig(
             r=8,
@@ -348,17 +240,12 @@ class PPOToolWOZTrainer:
         self.model = AutoModelForCausalLMWithValueHead.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct", 
                                                                        peft_config=lora_config,
                                                                        attn_implementation="flash_attention_2",
+                                                                       use_flash_attention_2=True,  # Critical for long sequences
                                                                        quantization_config=self.bnb_config,
                                                                        device_map="cuda",
                                                                        torch_dtype=torch.bfloat16, 
                                                                     use_cache=True,)#, quantization_config=self.bnb_config, torch_dtype=torch.bfloat16, device_map="cuda",)
         self.model = prepare_model_for_kbit_training(self.model)
-        # self.model.is_peft_model = True
-        # self.model.v_head = self.model.v_head.to(torch.bfloat16)
-
-        # self.model.gradient_checkpointing_enable()
-        # self.model.pretrained_model.gradient_checkpointing_enable()
-        # self.model.v_head.register_forward_hook(lambda m, inp, out: out.to(torch.bfloat16))
         self.model.requires_grad_(False)
         # 5. Verify value head parameters
         for name, param in self.model.named_parameters():
@@ -383,9 +270,9 @@ class PPOToolWOZTrainer:
             device_map="cuda",
             attn_implementation="flash_attention_2",
             torch_dtype=torch.bfloat16, 
-            use_cache=True
+            use_cache=True,
+            use_flash_attention_2=True,
         )
-        # self.ref_model = AutoModelForCausalLMWithValueHead.from_pretrained(self.ref_model, peft_config=lora_config)#, quantization_config=self.bnb_config, torch_dtype=torch.bfloat16, device_map="cuda",)
         self.ref_model.requires_grad_(False)
         self.ref_model.eval()
         
@@ -393,23 +280,23 @@ class PPOToolWOZTrainer:
 
     def setup_ppo_config(self):
         self.ppo_config = PPOConfig(
-            learning_rate=1e-5,
-            batch_size=16,
-            mini_batch_size=1,
-            gradient_accumulation_steps=16,
-            ppo_epochs=4,
-            seed=self.args.seed,
-            init_kl_coef=0.05,
-            target_kl=0.05,
-            cliprange=0.2,
-            cliprange_value=0.2,
-            vf_coef=0.5,
+            learning_rate=1e-4,  # Increased from 5e-5
+            batch_size=8,       # Larger batch size for stability
+            mini_batch_size=2,   # Critical! Avoids noisy updates
+            gradient_accumulation_steps=4,
+            ppo_epochs=4,             # Fewer epochs to avoid overfitting
+            cliprange=0.1,            # Tighter clipping for stability
+            cliprange_value=0.1,      # Clip value updates aggressively
+            vf_coef=0.5,              # Prioritize value learning
+            init_kl_coef=0.1,         # Penalize large KL divergences
+            target_kl=0.05,           # Enforce early stopping
             gamma=0.99,
             lam=0.95,
             gradient_checkpointing=True,
             optimize_cuda_cache=True,
             remove_unused_columns=True,
             is_peft_model=True,
+            max_grad_norm=0.3,
         )
 
     def initialize_trainer(self):
@@ -420,7 +307,7 @@ class PPOToolWOZTrainer:
         optimizer = bnb.optim.AdamW8bit(
             params,
             lr=self.ppo_config.learning_rate,
-            weight_decay=0.01,
+            weight_decay=0.00,
             eps=1e-6,
             betas=(0.9, 0.999),
         )
@@ -452,10 +339,6 @@ class PPOToolWOZTrainer:
         print(f"(Before) Max memory reserved: {torch.cuda.max_memory_reserved()/1e9:.2f} GB")
         # Run PPO Step
         from torch.nn.utils.rnn import pad_sequence
-        # observations_padded = pad_sequence(observations, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        # actions_padded = pad_sequence(actions, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        # self.trainer.config.batch_size=len(observations)
-        # self.trainer.config.gradient_accumulation_steps = 1 #2 if len(observations)%2==0 else 1
         ppo_stats = self.trainer.step(observations, actions, rewards_tensor)
         print(f"(After) Max memory reserved: {torch.cuda.max_memory_reserved()/1e9:.2f} GB")
         return {
@@ -485,7 +368,14 @@ class PPOToolWOZTrainer:
             "tokens/responses_len_mean": ppo_stats["tokens/responses_len_mean"],
             
             # Performance metrics
-            "time/ppo/total": ppo_stats["time/ppo/total"]
+            "time/ppo/total": ppo_stats["time/ppo/total"],
+
+            "env/reward_mean": ppo_stats["env/reward_mean"],
+            "env/reward_std": ppo_stats["env/reward_std"],
+            "env/reward_dist": ppo_stats["env/reward_dist"],
+            "ppo/mean_non_score_reward": ppo_stats["ppo/mean_non_score_reward"],
+            "ppo/mean_non_score_reward": ppo_stats["ppo/mean_non_score_reward"],
+            "ppo/policy/ratio": ppo_stats["ppo/policy/ratio"],
         }
 
 
@@ -509,6 +399,7 @@ class PPOToolWOZTrainer:
                 if convo_over:
                     break
                 training_outputs, output_mask = agent.step(self.trainer, tokenizer=self.tokenizer, env=convo_env)
+                assert len(training_outputs) == len(output_mask)
                 out_mask += output_mask
             got_reward, rw_to_delete = rewards.is_reward(agent.recent_actions)
             reward = 1.0 if got_reward else 0.0
@@ -522,26 +413,12 @@ class PPOToolWOZTrainer:
 
                 observations.append(input_tensor)
                 actions.append(response_tensor)
-                rewards_list.append(reward if output_mask[idx] else 0)  # Same reward for lack of differentiation, place appropriately.
-
-        # Convert observations, actions, rewards to tensors if not already
-        # observations = rnn_utils.pad_sequence(observations, batch_first=True)
-        # actions = rnn_utils.pad_sequence(actions, batch_first=True)
+                rewards_list.append(reward)  # Same reward for lack of differentiation, place appropriately.
         
         total_reward = total_reward / max_reward
-        
-        # self.trainer.optimizer.zero_grad(set_to_none=True)  # More memory efficient
-    
-        # # 2. Detach and remove all references
-        # del input_tensor, response_tensor, ppo_stats
-        # gc.collect()  # Force Python GC
-        
-        # # 3. Release PyTorch's internal cache
-        # with torch.cuda.device('cuda:0'):
-        #     torch.cuda.empty_cache()
 
 
-        # rewards_list = self._smooth_rewards(rewards_list, out_mask)
+        rewards_list = self._smooth_rewards(rewards_list, out_mask)
         return total_reward, agent.messages, observations, actions, rewards_list
 
 
@@ -674,3 +551,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
