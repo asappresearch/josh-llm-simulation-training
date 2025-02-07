@@ -273,7 +273,8 @@ def parse_api_call(api_call):
     {'name': 'get_coffee', 'parameters':{'type':'black', 'donut':True, 'number_of_coffees':10}}
     """
     api_values = {}
-    api_compiled = extract_and_parse_json(api_call)
+    # api_compiled = extract_and_parse_json(api_call)
+    api_compiled = json.loads(api_call)
     api_values['api_name'] = api_compiled['name']
     api_values['api_args'] = api_compiled['parameters']
     return api_values

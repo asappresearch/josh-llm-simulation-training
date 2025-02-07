@@ -24,8 +24,8 @@ class ReACTAgentSimulator(BaseJOSHAgent):
         self.apis_to_examples = {x['name']: x for x in api_examples}
         with open(f'{cwd}/data/tools.json', 'r') as file:
             tools_list = json.load(file)
-        self.MONO_PROMPT = prompts['react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
-        self.SHORT_PROMPT = prompts['dense_react_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
+        self.MONO_PROMPT = prompts['maybe_fine_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
+        self.SHORT_PROMPT = prompts['maybe_fine_prompt'].replace('{example_filled}', json.dumps(tools_list, indent=2))
         self.pattern = "(PLAN|APICALL|SPEAK)(.*?)(?=PLAN|APICALL|SPEAK|$)"
         self.model_name=model_name
         self.debug = debug

@@ -42,6 +42,36 @@ import josh_train.config as config
 from josh_train.josh import BaseJOSHAgent
 import bitsandbytes as bnb
 
+
+def isone(x):
+    return sum([y>=1 for y in x])
+
+def iszero(x):
+    return sum([y==0 for y in x])
+
+command_pattern = r'^PLAN .+? <COMMAND_END> (APICALL (\{.*?\}) <COMMAND_END>|SPEAK .+? <COMMAND_END>)$'
+
+def is_valid_json(json_str):
+    try:
+        json.loads(json_str)
+        return True
+    except json.JSONDecodeError:
+        return False
+
+def validate_command(command):
+    # Check basic pattern
+    match = re.match(command_pattern, command)
+    if not match:
+        return False
+    
+    # If it's an APICALL, validate the JSON
+    if 'APICALL' in command:
+        json_match = re.search(r'APICALL (\{.*?\}) <COMMAND_END>', command)
+        if not json_match or not is_valid_json(json_match.group(1)):
+            return False
+    
+    return True
+
 class LocalReACTAgentSimulator(BaseJOSHAgent):
     def __init__(self, api_examples, api_defs, tokenizer, model_name:Optional[str]=None, temperature=0.0, debug = False):
         super().__init__()
@@ -114,16 +144,22 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
             called_api = {'name':api_values['api_name'], 'parameters': api_values['api_args'], 'returned': returns}
         return returns, called_api
     
-    def step(self, model, **kwargs):
-        conversation_state = kwargs['env']
-        tokenizer = kwargs['tokenizer']
+    def step(self, model, tokenizer, env):
         training_outputs = []
         self.recent_actions = []
         output_mask=[]
+        format_reward = []
         count=0
         while count < 3:
             agent_messages = [{'role':'system', 'content':self.MONO_PROMPT}]+self.messages_internal
             turn, input_ids, response_ids = self.request(agent_messages, model, tokenizer)
+            turn = turn.replace('assistant', '').strip()
+            is_valid = validate_command(turn)
+            if is_valid:
+                format_reward.append(0.1)
+            else:
+                format_reward.append(0)
+            print(f'format reward: {format_reward[-1]}')
             output_mask_val = True
             #make sure they're not zero dim
             if input_ids.dim() == 0:
@@ -148,11 +184,18 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
                     self.messages_internal.append({'role':'assistant', 'content':thought_string+'SPEAK '+command+' <COMMAND_END>'})
                     self.messages.append({'role':'assistant', 'content':command})
                     output_mask.append(True)
-                    return training_outputs, output_mask
+                    return training_outputs, output_mask, format_reward, env
                 elif command_type == 'APICALL':
                     command = command.strip().replace('\n','')
-                    output, called_api = self.handle_api(command, conversation_state)
+                    output, called_api = self.handle_api(command, env['convo_env'])
+                    
                     self.recent_actions.append(called_api)
+                    got_reward, rw_to_delete = env['rewards'].is_reward([called_api])
+                    if got_reward:
+                        format_reward[-1]+=1
+                        print(f'✨Got reward!✨ {format_reward[-1]}')
+                        env['rewards'].delete_reward(rw_to_delete)
+                    
                     if self.debug:
                         print(output)
                     # Add the api call
@@ -168,7 +211,7 @@ class LocalReACTAgentSimulator(BaseJOSHAgent):
             output_mask.append(output_mask_val)
             count+=1
         self.messages.append({'role':'assistant', 'content':'Error: Agent ran out of retries.'})
-        return training_outputs, output_mask
+        return training_outputs, output_mask, format_reward, env
 
 class ConversationDataset(Dataset):
     def __init__(self, conversations: List[ConversationTurn]):
@@ -253,7 +296,7 @@ class PPOToolWOZTrainer:
                                                                        torch_dtype=torch.bfloat16, 
                                                                     use_cache=True,)#, quantization_config=self.bnb_config, torch_dtype=torch.bfloat16, device_map="cuda",)
         self.model = prepare_model_for_kbit_training(self.model)
-        self.model.requires_grad_(False)
+        # self.model.requires_grad_(False)
         # 5. Verify value head parameters
         for name, param in self.model.named_parameters():
             if "v_head" in name or "lora" in name:
@@ -341,53 +384,107 @@ class PPOToolWOZTrainer:
         )
 
     def train_step(self, observations, actions, rewards_list, step_num):
+        # Add validation checks
+        if not observations or not actions or not rewards_list:
+            print("Warning: Empty input lists detected")
+            print(f"Observations length: {len(observations)}")
+            print(f"Actions length: {len(actions)}")
+            print(f"Rewards length: {len(rewards_list)}")
+            return {}  # Return empty stats dictionary or handle appropriately
+        
+        # Add debugging prints
+        print("Observation shapes:", [obs.shape for obs in observations])
+        print("Action shapes:", [act.shape for act in actions])
+        print("Rewards:", rewards_list)
+        
         self.trainer.model.gradient_checkpointing_enable()
         self.trainer.model.train()
         rewards_tensor = [torch.tensor(x, device="cuda") for x in rewards_list]
-        print(f"Max input len {observations[-1].shape}")
-        print(f"Memory before step: {torch.cuda.memory_allocated()/1e9:.2f} GB")
-        print(f"(Before) Max memory reserved: {torch.cuda.max_memory_reserved()/1e9:.2f} GB")
-        # Run PPO Step
-        from torch.nn.utils.rnn import pad_sequence
-        ppo_stats = self.trainer.step(observations, actions, rewards_tensor)
-        print(f"(After) Max memory reserved: {torch.cuda.max_memory_reserved()/1e9:.2f} GB")
-        print(ppo_stats.keys())
-        return {
-            # Core PPO metrics
-            "ppo/loss/total": ppo_stats["ppo/loss/total"],
-            "ppo/loss/policy": ppo_stats["ppo/loss/policy"],
-            "ppo/loss/value": ppo_stats["ppo/loss/value"],
-            "ppo/policy/entropy": ppo_stats["ppo/policy/entropy"],
-            "ppo/policy/approxkl": ppo_stats["ppo/policy/approxkl"],
-            "ppo/policy/clipfrac": ppo_stats["ppo/policy/clipfrac"],
-            
-            # Value function metrics
-            "ppo/val/error": ppo_stats["ppo/val/error"],
-            "ppo/val/var_explained": ppo_stats["ppo/val/var_explained"],
-            
-            # Reward statistics
-            "ppo/mean_scores": ppo_stats["ppo/mean_scores"],
-            "ppo/returns/mean": ppo_stats["ppo/returns/mean"],
-            "ppo/returns/var": ppo_stats["ppo/returns/var"],
-            
-            # KL divergence metrics
-            "objective/kl": ppo_stats["objective/kl"],
-            "objective/kl_coef": ppo_stats["objective/kl_coef"],
-            
-            # Token statistics
-            "tokens/queries_len_mean": ppo_stats["tokens/queries_len_mean"],
-            "tokens/responses_len_mean": ppo_stats["tokens/responses_len_mean"],
-            
-            # Performance metrics
-            "time/ppo/total": ppo_stats["time/ppo/total"],
+        
+        # Add explicit shape checks before PPO step
+        for i, (obs, act) in enumerate(zip(observations, actions)):
+            if obs.dim() == 0 or act.dim() == 0:
+                print(f"Warning: Found zero-dim tensor at position {i}")
+                print(f"Observation shape: {obs.shape if obs.dim() > 0 else 'scalar'}")
+                print(f"Action shape: {act.shape if act.dim() > 0 else 'scalar'}")
+                # Fix dimensions
+                if obs.dim() == 0:
+                    observations[i] = obs.unsqueeze(0).unsqueeze(0)
+                if act.dim() == 0:
+                    actions[i] = act.unsqueeze(0).unsqueeze(0)
 
-            # "env/reward_mean": ppo_stats["env/reward_mean"],
-            # "env/reward_std": ppo_stats["env/reward_std"],
-            # "env/reward_dist": ppo_stats["env/reward_dist"],
-            # "ppo/mean_non_score_reward": ppo_stats["ppo/mean_non_score_reward"],
-            # "ppo/mean_non_score_reward": ppo_stats["ppo/mean_non_score_reward"],
-            # "ppo/policy/ratio": ppo_stats["ppo/policy/ratio"],
-        }
+        # Ensure tensors are on the right device
+        observations = [obs.to("cuda") for obs in observations]
+        actions = [act.to("cuda") for act in actions]
+
+        got_one_reward = isone(rewards_list)
+        is_zero = iszero(rewards_list)
+
+        try:
+            ppo_stats = self.trainer.step(observations, actions, rewards_tensor)
+            stats_return = {
+                # Core PPO metrics
+                "ppo/loss/total": ppo_stats["ppo/loss/total"],
+                "ppo/loss/policy": ppo_stats["ppo/loss/policy"],
+                "ppo/loss/value": ppo_stats["ppo/loss/value"],
+                "ppo/policy/entropy": ppo_stats["ppo/policy/entropy"],
+                "ppo/policy/approxkl": ppo_stats["ppo/policy/approxkl"],
+                "ppo/policy/clipfrac": ppo_stats["ppo/policy/clipfrac"],
+                
+                # Value function metrics
+                "ppo/val/error": ppo_stats["ppo/val/error"],
+                "ppo/val/var_explained": ppo_stats["ppo/val/var_explained"],
+                
+                # Reward statistics
+                "ppo/mean_scores": ppo_stats["ppo/mean_scores"],
+                "ppo/returns/mean": ppo_stats["ppo/returns/mean"],
+                "ppo/returns/var": ppo_stats["ppo/returns/var"],
+                
+                # KL divergence metrics
+                "objective/kl": ppo_stats["objective/kl"],
+                "objective/kl_coef": ppo_stats["objective/kl_coef"],
+                
+                # Token statistics
+                "tokens/queries_len_mean": ppo_stats["tokens/queries_len_mean"],
+                "tokens/responses_len_mean": ppo_stats["tokens/responses_len_mean"],
+                
+                # Performance metrics
+                "time/ppo/total": ppo_stats["time/ppo/total"],
+
+                "reward/got_one": got_one_reward,
+                "reward/was_zero": is_zero,
+            }
+        except RuntimeError as e:
+            print("Error during PPO step:", str(e))
+            print("Attempting to pad sequences...")
+            print(f"{[x.shape for x in observations]}")
+            print(f"{[x.shape for x in actions]}")
+            print(len(observations))
+            print(len(actions))
+            stats_return = {
+                "ppo/loss/total": 0,
+                "ppo/loss/policy": 0,
+                "ppo/loss/value": 0,
+                "ppo/policy/entropy": 0,
+                "ppo/policy/approxkl": 0,
+                "ppo/policy/clipfrac": 0,
+                "ppo/val/error": 0,
+                "ppo/val/var_explained": 0,
+                "ppo/mean_scores": 0,
+                "ppo/returns/mean": 0,
+                "ppo/returns/var": 0,
+                "objective/kl": 0,
+                "objective/kl_coef": 0,
+                "tokens/queries_len_mean": 0,
+                "tokens/responses_len_mean": 0,
+                "time/ppo/total": 0,
+                "reward/got_one": 0,
+                "reward/was_zero": 0,
+            }
+
+        
+        print(f"(After) Max memory reserved: {torch.cuda.max_memory_reserved()/1e9:.2f} GB")
+        return stats_return
     
     def build_env(self, conversation_id: str):
         convo_env = Conversation(conversation_id, self.env.apis, self.env.delex)
@@ -418,14 +515,9 @@ class PPOToolWOZTrainer:
             if convo_over:
                 convo_env['convo_over']=True
                 return convo_env
-            training_outputs, output_mask = convo_env['agent'].step(self.trainer, tokenizer=self.tokenizer, env=convo_env['convo_env'])
+            training_outputs, output_mask, format_rewards, convo_env = convo_env['agent'].step(self.trainer, tokenizer=self.tokenizer, env=convo_env)
 
             convo_env['out_mask'] += output_mask
-            got_reward, rw_to_delete = convo_env['rewards'].is_reward(convo_env['agent'].recent_actions)
-            reward = 1.0 if got_reward else 0.0
-            convo_env['total_rewards'] += 1.0 if got_reward else 0.0
-            if got_reward:
-                convo_env['rewards'].delete_reward(rw_to_delete)
 
             for idx, x in enumerate(training_outputs):
                 input_tensor = x[0].squeeze()
@@ -433,7 +525,8 @@ class PPOToolWOZTrainer:
 
                 convo_env['observations'].append(input_tensor)
                 convo_env['actions'].append(response_tensor)
-                convo_env['rewards_list'].append(reward) 
+                convo_env['rewards_list'].append(format_rewards[idx]) 
+                print(format_rewards[idx])
 
             return convo_env
         
@@ -458,9 +551,44 @@ class PPOToolWOZTrainer:
         batch_rewards = []
 
         for env in envs:
-            batch_obs += env["observations"]
-            batch_actions += env["actions"]
-            batch_rewards += env["rewards_list"]
+            if not env["observations"] or not env["actions"] or not env["rewards_list"]:
+                print(obs)
+                print(act)
+                print(rew)
+                print(env)
+                print('WARNING: Found empty list, skipping')
+                continue
+            
+            observation = []
+            action = []
+            rewards = []
+            for i, (obs, act, rew) in enumerate(zip(env["observations"], env["actions"], env["rewards_list"])):
+                try:
+                    torch.cat([obs, act])
+                except:
+                    print(obs)
+                    print(act)
+                    print(rew)
+                    print(env)
+                    print('WARNING: failed the cat test, skipping')
+                    continue
+                if obs.dim() == 0 or act.dim() == 0:
+                    print(obs)
+                    print(act)
+                    print(rew)
+                    print(env)
+                    print('WARNING: Found zero dim vector, skipping')
+                    continue
+                else:
+                    observation.append(obs)
+                    action.append(act)
+                    rewards.append(rew)
+            
+            batch_obs += observation
+            batch_actions += action
+            batch_rewards += rewards
+
+
 
         if shuffle:
             indices = list(range(len(batch_obs)))
@@ -481,6 +609,9 @@ class PPOToolWOZTrainer:
                     id = train_ids.pop()
                     envs.append(self.build_env(id))
         return envs, train_ids
+    
+
+
 
     def train(self, num_epochs: int = 10):
         wandb.init(project="toolwoz-ppo")
@@ -499,16 +630,18 @@ class PPOToolWOZTrainer:
             envs, train_ids = self.make_n_environments(train_ids=train_ids, n=8)
 
             current_len=0
-            while current_len<stopping_number:
+            while current_len<=stopping_number:
                 envs, train_ids = self.step_n_environments(envs, train_ids=train_ids)
                 current_len = self.get_current_len(envs)
+                if current_len>stopping_number:
+                    batch_obs, batch_actions, batch_reward = self.make_batch(envs, shuffle=True)
+                    if len(batch_obs)<stopping_number:
+                        print(f'WARNING: Doing an extra lap, for batch len {len(batch_obs)}')
+                        current_len=stopping_number
                 # print(self.get_current_len(envs))
                 # print(f'j:{j}')
-                
-            envs = self.smooth_env_rewards(envs)
+            # envs = self.smooth_env_rewards(envs)
             # print(len(envs))
-            
-            batch_obs, batch_actions, batch_reward = self.make_batch(envs, shuffle=True)
             # print(batch_obs)
             log_msg = self.train_step(batch_obs[:stopping_number], batch_actions[:stopping_number], batch_reward[:stopping_number], step_num=train_num)
             wandb.log(log_msg, step=train_num)
