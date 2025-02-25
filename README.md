@@ -53,7 +53,7 @@ python tau-bench-eval/run.py --josh --debug
 ```
 
 ## Using JOSH
-A class of JOSH is provided in this repo to be very flexible and work for a wide variety of user/agent interactions. To use JOSH yourself, you can start with the following code snippit
+A class of JOSH is provided in this repo to be very flexible and work for a wide variety of user/agent interactions. To use JOSH yourself, you can start with the following code snippet
 ```
 from josh_train.josh import JOSH, BaseJOSHAgent, BaseRewards, BaseJOSHUser
 def add_error_message(agent):
