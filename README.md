@@ -96,3 +96,14 @@ All classes can be built on top of, and expanded for further use.
 ```
 unzip mtbencheval.zip
 ```
+
+## Citation
+Please cite if you enjoyed this work!
+```
+@article{lattimer2024sparse,
+  title={Sparse Rewards Can Self-Train Dialogue Agents},
+  author={Lattimer, Barrett Martin and Gangal, Varun and McDonald, Ryan and Yang, Yi},
+  journal={arXiv preprint arXiv:2409.04617},
+  year={2024}
+}
+```
