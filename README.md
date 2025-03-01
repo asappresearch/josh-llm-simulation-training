@@ -11,11 +11,15 @@ This repo runs JOSH, the ToolWOZ, and τ-bench dataset. This repo also contains 
 ## Setup
 1. Run the following in a new env
 ```
+pip install josh-train
+```
+or
+```
 pip install -e .
 ```
-2. Unzip the ```dataset.zip``` file in the ```data``` folder
+1. Unzip the ```dataset.zip``` file in the ```data``` folder
    
-3. Set up your openai credentials
+2. Set up your openai credentials
 ```
 export OPENAI_API_KEY= # api_key
 export OPENAI_ORGANIZATION= # api_org

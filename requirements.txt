@@ -6,7 +6,6 @@ pyyaml
 datasets
 accelerate
 transformers
-bitsandbytes
 numpy
 pandas
 trl
