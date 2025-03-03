@@ -107,7 +107,7 @@ class AsyncJOSH:
                             print(f'🌟 Got reward')
                         collapse_root_to = unfinished_leaves[idx]
                         rewards_to_delete = copy.deepcopy(rw_to_delete)
-                        if len(self.rewards)==1:
+                        if len(self.rewards)-len(rewards_to_delete)==0:
                             self.golden_agent = turn.agent
                 
                 if count+1 == self.max_turn_tries and not turn_finished:
