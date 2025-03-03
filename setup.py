@@ -25,7 +25,7 @@ setup(
     install_requires=get_requires("requirements.txt"),
     include_package_data=True,
     setup_requires=["setuptools_scm"],
-    version="0.1.1",
+    version="0.1.2",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
